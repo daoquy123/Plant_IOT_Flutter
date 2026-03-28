@@ -73,32 +73,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               child: chat.loadingHistory
-                  ? const Column(
-                      children: [
-                        _AiProfileHeader(),
-                        Expanded(
-                          child: Center(
-                            child: CircularProgressIndicator(),
-                          ),
-                        ),
-                      ],
-                    )
-                  : CustomScrollView(
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.builder(
                       controller: _scroll,
-                      slivers: [
-                        const SliverToBoxAdapter(child: _AiProfileHeader()),
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-                          sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, i) {
-                                return _Bubble(message: chat.messages[i]);
-                              },
-                              childCount: chat.messages.length,
-                            ),
-                          ),
-                        ),
-                      ],
+                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+                      itemCount: chat.messages.length,
+                      itemBuilder: (context, i) {
+                        return _Bubble(message: chat.messages[i]);
+                      },
                     ),
             ),
           ),
@@ -278,51 +260,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final t = _controller.text;
     _controller.clear();
     await context.read<ChatProvider>().sendUserText(t);
-  }
-}
-
-/// Avatar + tên trợ lý, căn giữa phía trên danh sách chat.
-class _AiProfileHeader extends StatelessWidget {
-  const _AiProfileHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: 38,
-            backgroundColor: scheme.primaryContainer,
-            child: Icon(
-              Icons.smart_toy_rounded,
-              size: 44,
-              color: scheme.primary,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Trợ lý AI',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Smart Garden',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurface.withValues(alpha: 0.5),
-                  fontWeight: FontWeight.w500,
-                ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

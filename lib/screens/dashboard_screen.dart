@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -11,11 +9,12 @@ import '../widgets/app_card.dart';
 import '../widgets/notification_history_sheet.dart';
 import '../widgets/section_label.dart';
 
-/// Khu vực camera — sau này gắn luồng thật; [mirror] lật ngang xem thử.
+/// Khu vực camera — sau này gắn luồng thật; lật ngang / lật dọc xem thử.
 Widget buildCameraStream(
   BuildContext context,
   String url, {
-  bool mirror = false,
+  bool flipHorizontal = false,
+  bool flipVertical = false,
 }) {
   final hasUrl = url.trim().isNotEmpty;
   final cameraHint = hasUrl ? 'Luồng camera đã sẵn sàng' : 'Đang chờ luồng Camera…';
@@ -70,10 +69,12 @@ Widget buildCameraStream(
     ],
   );
 
-  if (mirror) {
+  final sx = flipHorizontal ? -1.0 : 1.0;
+  final sy = flipVertical ? -1.0 : 1.0;
+  if (sx != 1.0 || sy != 1.0) {
     core = Transform(
       alignment: Alignment.center,
-      transform: Matrix4.rotationY(math.pi),
+      transform: Matrix4.diagonal3Values(sx, sy, 1.0),
       child: core,
     );
   }
@@ -88,7 +89,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  bool _cameraMirror = false;
+  bool _cameraFlipHorizontal = false;
+  bool _cameraFlipVertical = false;
 
   @override
   void initState() {
@@ -127,7 +129,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             body: Stack(
               fit: StackFit.expand,
               children: [
-                buildCameraStream(ctx, url, mirror: _cameraMirror),
+                buildCameraStream(
+                  ctx,
+                  url,
+                  flipHorizontal: _cameraFlipHorizontal,
+                  flipVertical: _cameraFlipVertical,
+                ),
                 Positioned(
                   top: 8,
                   right: 4,
@@ -184,7 +191,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 buildCameraStream(
                   context,
                   settings.cameraUrl,
-                  mirror: _cameraMirror,
+                  flipHorizontal: _cameraFlipHorizontal,
+                  flipVertical: _cameraFlipVertical,
                 ),
                 Positioned(
                   left: 0,
@@ -202,39 +210,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 20, 10, 12),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _CameraActionChip(
-                            icon: Icons.refresh_rounded,
-                            label: 'Làm mới',
-                            onTap: () async {
-                              final notifications =
-                                  context.read<NotificationsProvider>();
-                              final ok = await _refreshEsp();
-                              if (!mounted) return;
-                              if (ok) {
-                                await notifications.add(
-                                  title: 'Giám sát',
-                                  body: 'Đã làm mới dữ liệu cảm biến.',
-                                );
-                              }
-                            },
-                          ),
-                          _CameraActionChip(
-                            icon: Icons.fullscreen_rounded,
-                            label: 'Phóng to',
-                            onTap: () =>
-                                _openCameraFullscreen(settings.cameraUrl),
-                          ),
-                          _CameraActionChip(
-                            icon: Icons.flip_rounded,
-                            label: 'Lật ngang',
-                            onTap: () =>
-                                setState(() => _cameraMirror = !_cameraMirror),
-                          ),
-                        ],
+                      padding: const EdgeInsets.fromLTRB(8, 20, 8, 12),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _CameraActionChip(
+                              icon: Icons.refresh_rounded,
+                              label: 'Làm mới',
+                              onTap: () async {
+                                final notifications =
+                                    context.read<NotificationsProvider>();
+                                final ok = await _refreshEsp();
+                                if (!mounted) return;
+                                if (ok) {
+                                  await notifications.add(
+                                    title: 'Giám sát',
+                                    body: 'Đã làm mới dữ liệu cảm biến.',
+                                  );
+                                }
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            _CameraActionChip(
+                              icon: Icons.fullscreen_rounded,
+                              label: 'Phóng to',
+                              onTap: () =>
+                                  _openCameraFullscreen(settings.cameraUrl),
+                            ),
+                            const SizedBox(width: 8),
+                            _CameraActionChip(
+                              icon: Icons.flip_rounded,
+                              label: 'Lật ngang',
+                              onTap: () => setState(
+                                () => _cameraFlipHorizontal =
+                                    !_cameraFlipHorizontal,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _CameraActionChip(
+                              icon: Icons.swap_vert_rounded,
+                              label: 'Lật dọc',
+                              onTap: () => setState(
+                                () => _cameraFlipVertical =
+                                    !_cameraFlipVertical,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
