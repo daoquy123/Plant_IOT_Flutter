@@ -161,7 +161,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 22),
           const SectionLabel('Kết nối'),
           const SizedBox(height: 4),
-          _LabeledField(label: 'IP ESP32', controller: _esp),
+          _LabeledField(label: 'URL Server Node.js', controller: _esp),
           const SizedBox(height: 14),
           _LabeledField(label: 'URL Camera', controller: _cam),
           const SizedBox(height: 14),

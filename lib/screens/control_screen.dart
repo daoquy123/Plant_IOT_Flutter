@@ -43,8 +43,12 @@ class ControlScreen extends StatelessWidget {
                         children: [
                           Text(
                             s.name,
-                            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                                  color: scheme.onSurface.withValues(alpha: 0.5),
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelLarge
+                                ?.copyWith(
+                                  color:
+                                      scheme.onSurface.withValues(alpha: 0.5),
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: 0.2,
                                 ),
@@ -89,15 +93,21 @@ class ControlScreen extends StatelessWidget {
                   label: 'Màn che',
                   on: garden.shadeOn,
                   busy: garden.iotBusy,
-                  subtitle: null,
+                  subtitle:
+                      'Trạng thái hiện tại: ${garden.shadeOn ? 'Đang mở' : 'Đang đóng'}',
+                  onLabel: 'Đóng',
+                  offLabel: 'Mở',
                   onPressed: () => context.read<GardenProvider>().toggleShade(),
                 ),
                 const SizedBox(height: 12),
                 _ControlRow(
                   label: 'Máy bơm',
-                  on: garden.pumpOn,
+                  on: garden.pumpDisplayOn,
                   busy: garden.iotBusy,
-                  subtitle: 'Hôm nay tưới: ${garden.waterTodayCount} lần',
+                  subtitle:
+                      'Hôm nay tưới: ${garden.waterTodayCount} lần • ${garden.pumpDisplayOn ? 'Đang bật' : 'Đang tắt'}',
+                  onLabel: 'Tắt',
+                  offLabel: 'Bật',
                   onPressed: () => context.read<GardenProvider>().togglePump(),
                 ),
               ],
@@ -122,6 +132,8 @@ class _ControlRow extends StatelessWidget {
     required this.on,
     required this.busy,
     required this.subtitle,
+    required this.onLabel,
+    required this.offLabel,
     required this.onPressed,
   });
 
@@ -129,6 +141,8 @@ class _ControlRow extends StatelessWidget {
   final bool on;
   final bool busy;
   final String? subtitle;
+  final String onLabel;
+  final String offLabel;
   final VoidCallback onPressed;
 
   @override
@@ -168,11 +182,11 @@ class _ControlRow extends StatelessWidget {
             child: on
                 ? FilledButton(
                     onPressed: busy ? null : onPressed,
-                    child: const Text('Tắt'),
+                    child: Text(onLabel),
                   )
                 : OutlinedButton(
                     onPressed: busy ? null : onPressed,
-                    child: const Text('Bật'),
+                    child: Text(offLabel),
                   ),
           ),
         ],

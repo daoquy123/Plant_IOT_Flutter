@@ -9,7 +9,7 @@ import '../widgets/app_card.dart';
 import '../widgets/notification_history_sheet.dart';
 import '../widgets/section_label.dart';
 
-/// Khu vực camera — sau này gắn luồng thật; lật ngang / lật dọc xem thử.
+/// Khu vực camera / ảnh mới nhất từ server Node.js.
 Widget buildCameraStream(
   BuildContext context,
   String url, {
@@ -17,7 +17,9 @@ Widget buildCameraStream(
   bool flipVertical = false,
 }) {
   final hasUrl = url.trim().isNotEmpty;
-  final cameraHint = hasUrl ? 'Luồng camera đã sẵn sàng' : 'Đang chờ luồng Camera…';
+  final cameraHint = hasUrl
+      ? 'Đang hiển thị ảnh / luồng mới nhất từ server'
+      : 'Đang chờ luồng Camera…';
   Widget core = Stack(
     fit: StackFit.expand,
     children: [
@@ -34,6 +36,15 @@ Widget buildCameraStream(
           ),
         ),
       ),
+      if (hasUrl)
+        Positioned.fill(
+          child: Image.network(
+            url,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) =>
+                const SizedBox.shrink(),
+          ),
+        ),
       Positioned.fill(
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -158,6 +169,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final garden = context.watch<GardenProvider>();
     final notifications = context.watch<NotificationsProvider>();
     final scheme = Theme.of(context).colorScheme;
+    final cameraUrl = (garden.latestImageUrl != null &&
+            garden.latestImageUrl!.trim().isNotEmpty)
+        ? garden.latestImageUrl!.trim()
+        : settings.cameraUrl;
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -190,7 +205,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 buildCameraStream(
                   context,
-                  settings.cameraUrl,
+                  cameraUrl,
                   flipHorizontal: _cameraFlipHorizontal,
                   flipVertical: _cameraFlipVertical,
                 ),
@@ -236,8 +251,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             _CameraActionChip(
                               icon: Icons.fullscreen_rounded,
                               label: 'Phóng to',
-                              onTap: () =>
-                                  _openCameraFullscreen(settings.cameraUrl),
+                              onTap: () => _openCameraFullscreen(cameraUrl),
                             ),
                             const SizedBox(width: 8),
                             _CameraActionChip(
@@ -253,8 +267,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               icon: Icons.swap_vert_rounded,
                               label: 'Lật dọc',
                               onTap: () => setState(
-                                () => _cameraFlipVertical =
-                                    !_cameraFlipVertical,
+                                () =>
+                                    _cameraFlipVertical = !_cameraFlipVertical,
                               ),
                             ),
                           ],

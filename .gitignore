@@ -13,3 +13,9 @@ build/
 **/android/local.properties
 **/android/**/GeneratedPluginRegistrant.java
 **/android/**/key.properties
+
+# Node.js server
+node_modules/
+server/node_modules/
+uploads/
+server/uploads/

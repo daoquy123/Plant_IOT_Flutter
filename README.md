@@ -1,17 +1,56 @@
-# smart_garden
+# Plant IoT Flutter
 
-A new Flutter project.
+Hệ thống gồm 2 phần chính:
 
-## Getting Started
+- `lib/`, `android/`, `windows/` → ứng dụng Flutter
+- `server/` → backend Node.js nhận dữ liệu cảm biến, ảnh và relay command
 
-This project is a starting point for a Flutter application.
+## Cấu trúc đề xuất
 
-A few resources to get you started if this is your first Flutter project:
+```text
+Plant_IOT_Flutter/
+├─ lib/
+├─ android/
+├─ windows/
+├─ server/
+│  ├─ server.js
+│  ├─ package.json
+│  ├─ package-lock.json
+│  ├─ node_modules/
+│  └─ uploads/
+└─ README.md
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Chạy Node.js server
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Lần đầu:
+
+```powershell
+cd "c:\Users\LENOVO\Documents\GitHub\Plant_IOT_Flutter\server"
+npm install
+npm start
+```
+
+Những lần sau:
+
+```powershell
+cd "c:\Users\LENOVO\Documents\GitHub\Plant_IOT_Flutter\server"
+npm start
+```
+
+Server mặc định chạy tại:
+
+```text
+http://localhost:3000
+```
+
+## API nhanh
+
+- `GET /` → kiểm tra server
+- `POST /api/sensor` → ESP32 gửi sensor
+- `GET /api/sensor/latest` → lấy sensor mới nhất
+- `POST /api/image` → ESP32-CAM gửi ảnh
+- `GET /api/image/latest` → lấy ảnh mới nhất
+- `POST /api/relay` → Flutter gửi lệnh
+- `GET /api/command` → ESP32 lấy lệnh
+
