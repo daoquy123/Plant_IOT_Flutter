@@ -13,7 +13,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _esp;
+  late final TextEditingController _serverUrl;
+  late final TextEditingController _apiKey;
   late final TextEditingController _cam;
   late final TextEditingController _ai;
   late final SettingsProvider _settings;
@@ -23,14 +24,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _esp = TextEditingController();
+    _serverUrl = TextEditingController();
+    _apiKey = TextEditingController();
     _cam = TextEditingController();
     _ai = TextEditingController();
     _settings = context.read<SettingsProvider>();
     void hydrate() {
       if (_hydrated || !_settings.isLoaded) return;
       _hydrated = true;
-      _esp.text = _settings.esp32Ip;
+      _serverUrl.text = _settings.serverUrl;
+      _apiKey.text = _settings.apiKey;
       _cam.text = _settings.cameraUrl;
       _ai.text = _settings.aiServerUrl;
       if (mounted) setState(() {});
@@ -44,7 +47,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _settings.removeListener(_hydrateListener);
-    _esp.dispose();
+    _serverUrl.dispose();
+    _apiKey.dispose();
     _cam.dispose();
     _ai.dispose();
     super.dispose();
@@ -62,7 +66,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton(
             onPressed: () async {
               settings
-                ..setEsp32Ip(_esp.text)
+                ..setServerUrl(_serverUrl.text)
+                ..setApiKey(_apiKey.text)
                 ..setCameraUrl(_cam.text)
                 ..setAiServerUrl(_ai.text);
               await settings.saveAll();
@@ -161,7 +166,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 22),
           const SectionLabel('Kết nối'),
           const SizedBox(height: 4),
-          _LabeledField(label: 'URL Server Node.js', controller: _esp),
+          _LabeledField(label: 'Server URL', controller: _serverUrl),
+          const SizedBox(height: 14),
+          _LabeledField(label: 'API Key', controller: _apiKey),
           const SizedBox(height: 14),
           _LabeledField(label: 'URL Camera', controller: _cam),
           const SizedBox(height: 14),

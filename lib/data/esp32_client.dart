@@ -2,7 +2,10 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-/// Flutter gọi server Node.js, server sẽ chuyển tiếp tới ESP32 / ESP32-CAM.
+/// Độ chờ HTTP cho mạng không ổn định / đường truyền xa.
+const Duration _httpTimeout = Duration(seconds: 30);
+
+/// Client HTTP nhỏ gọn để kết nối với backend Node.js của Plant IoT.
 class Esp32Client {
   Esp32Client({http.Client? client}) : _client = client ?? http.Client();
 
@@ -21,6 +24,16 @@ class Esp32Client {
     return endpoint.isEmpty ? base : base.resolve(endpoint);
   }
 
+  Map<String, String> _buildHeaders(String apiKey) {
+    final headers = {
+      'Content-Type': 'application/json; charset=utf-8',
+    };
+    if (apiKey.trim().isNotEmpty) {
+      headers['X-API-KEY'] = apiKey.trim();
+    }
+    return headers;
+  }
+
   Map<String, dynamic> _decodeMap(http.Response response) {
     final raw = utf8.decode(response.bodyBytes);
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -35,11 +48,12 @@ class Esp32Client {
   }
 
   Future<Map<String, dynamic>> postAction({
-    required String esp32Base,
+    required String serverBase,
     required String action,
+    required String apiKey,
     Map<String, dynamic>? extra,
   }) async {
-    final uri = _resolveBase(esp32Base, '/api/relay');
+    final uri = _resolveBase(serverBase, '/api/relay');
     final body = jsonEncode({
       'action': action,
       if (extra != null) ...extra,
@@ -47,28 +61,43 @@ class Esp32Client {
     final response = await _client
         .post(
           uri,
-          headers: {'Content-Type': 'application/json; charset=utf-8'},
+          headers: _buildHeaders(apiKey),
           body: body,
         )
-        .timeout(const Duration(seconds: 15));
+        .timeout(_httpTimeout);
     return _decodeMap(response);
   }
 
   Future<Map<String, dynamic>> fetchLatestSensor({
-    required String esp32Base,
+    required String serverBase,
+    required String apiKey,
   }) async {
-    final uri = _resolveBase(esp32Base, '/api/sensor/latest');
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 15));
+    final uri = _resolveBase(serverBase, '/api/sensors/latest');
+    final response = await _client
+        .get(uri, headers: _buildHeaders(apiKey))
+        .timeout(_httpTimeout);
     return _decodeMap(response);
   }
 
   Future<Map<String, dynamic>> fetchLatestImage({
-    required String esp32Base,
+    required String serverBase,
+    required String apiKey,
   }) async {
-    final uri = _resolveBase(esp32Base, '/api/image/latest');
-    final response =
-        await _client.get(uri).timeout(const Duration(seconds: 15));
+    final uri = _resolveBase(serverBase, '/api/camera/latest');
+    final response = await _client
+        .get(uri, headers: _buildHeaders(apiKey))
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
+  Future<Map<String, dynamic>> fetchRelayStatus({
+    required String serverBase,
+    required String apiKey,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/relay/status');
+    final response = await _client
+        .get(uri, headers: _buildHeaders(apiKey))
+        .timeout(_httpTimeout);
     return _decodeMap(response);
   }
 

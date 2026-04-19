@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
+import '../config/server_defaults.dart';
 import '../data/esp32_client.dart';
 import '../models/sensor_display.dart';
 import 'settings_provider.dart';
@@ -69,14 +70,17 @@ class GardenProvider extends ChangeNotifier {
       ];
 
   void _ensureRealtimeConnection() {
-    final rawBase = _settings?.esp32Ip.trim() ?? '';
-    if (rawBase.isEmpty) {
+    final rawBase = _settings?.serverUrl.trim() ?? '';
+    final apiKey = _settings?.apiKey.trim() ?? '';
+
+    if (rawBase.isEmpty || apiKey.isEmpty) {
       _socket?.disconnect();
       _socket?.dispose();
       _socket = null;
       _socketBase = null;
       return;
     }
+
     if (rawBase == _socketBase && _socket != null) {
       return;
     }
@@ -93,6 +97,10 @@ class GardenProvider extends ChangeNotifier {
       normalizedBase,
       io.OptionBuilder()
           .setTransports(['websocket'])
+          .setExtraHeaders({'X-API-KEY': apiKey})
+          .enableReconnection()
+          .setReconnectionAttempts(9999)
+          .setReconnectionDelay(1000)
           .disableAutoConnect()
           .build(),
     );
@@ -124,6 +132,24 @@ class GardenProvider extends ChangeNotifier {
       final map = _coerceMap(data);
       if (map != null) {
         _applyCommandPayload(map, countWater: false);
+      }
+    });
+    socket.on('relay', (data) {
+      final map = _coerceMap(data);
+      if (map == null) return;
+      final rows = map['relay_status'];
+      _applyRelayStatusRows(rows);
+    });
+    socket.on('camera', (data) {
+      final map = _coerceMap(data);
+      String? url;
+      if (map != null) {
+        url = map['url']?.toString();
+        url ??= map['image_url']?.toString();
+      }
+      if (url != null && url.trim().isNotEmpty) {
+        latestImageUrl = url.trim();
+        notifyListeners();
       }
     });
     socket.on('image', (data) {
@@ -160,6 +186,24 @@ class GardenProvider extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  void _applyRelayStatusRows(dynamic rows) {
+    if (rows is! List) return;
+    for (final item in rows) {
+      if (item is! Map) continue;
+      final m = Map<String, dynamic>.from(item);
+      final id = m['relay_id'];
+      final st = _asBool(m['state']);
+      if (st == null) continue;
+      final rid = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (rid == kRelayIdShade) {
+        shadeOn = st;
+      } else if (rid == kRelayIdPump) {
+        pumpOn = st;
+      }
+    }
+    notifyListeners();
   }
 
   bool? _asBool(dynamic value) {
@@ -263,9 +307,10 @@ class GardenProvider extends ChangeNotifier {
   }
 
   Future<void> refreshFromEsp32() async {
-    final base = _settings?.esp32Ip ?? '';
-    if (base.isEmpty) {
-      lastError = 'Thiếu URL server Node.js trong Cài đặt';
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key trong Cài đặt';
       notifyListeners();
       return;
     }
@@ -274,7 +319,10 @@ class GardenProvider extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
-      final sensorMap = await _esp32.fetchLatestSensor(esp32Base: base);
+      final sensorMap = await _esp32.fetchLatestSensor(
+        serverBase: base,
+        apiKey: apiKey,
+      );
       if (sensorMap.isEmpty) {
         gardenStatus = 'Chưa có dữ liệu cảm biến từ ESP32';
       } else {
@@ -282,10 +330,30 @@ class GardenProvider extends ChangeNotifier {
         applyEspPayload(payload);
       }
 
-      final imageMap = await _esp32.fetchLatestImage(esp32Base: base);
-      final imageUrl = imageMap['url']?.toString();
+      final imageMap = await _esp32.fetchLatestImage(
+        serverBase: base,
+        apiKey: apiKey,
+      );
+      final rawImage = imageMap['image'];
+      String? imageUrl;
+      if (rawImage is Map) {
+        imageUrl = rawImage['url']?.toString();
+      } else if (rawImage is String) {
+        imageUrl = rawImage;
+      }
+      imageUrl ??= imageMap['url']?.toString();
       if (imageUrl != null && imageUrl.isNotEmpty) {
         latestImageUrl = imageUrl;
+      }
+
+      try {
+        final relayMap = await _esp32.fetchRelayStatus(
+          serverBase: base,
+          apiKey: apiKey,
+        );
+        _applyRelayStatusRows(relayMap['relay_status']);
+      } catch (_) {
+        /* relay poll optional — socket may already sync */
       }
     } catch (e) {
       lastError = e.toString();
@@ -296,9 +364,10 @@ class GardenProvider extends ChangeNotifier {
   }
 
   Future<void> toggleShade() async {
-    final base = _settings?.esp32Ip ?? '';
-    if (base.isEmpty) {
-      lastError = 'Thiếu URL server Node.js';
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key';
       notifyListeners();
       return;
     }
@@ -310,12 +379,15 @@ class GardenProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final map = await _esp32.postAction(
-        esp32Base: base,
+        serverBase: base,
+        apiKey: apiKey,
         action: next ? 'shade_on' : 'shade_off',
       );
-      final command =
-          _coerceMap(map['command']) ?? <String, dynamic>{'cover': next};
-      _applyCommandPayload(command, emit: false);
+      final command = _coerceMap(map['command']);
+      if (command != null) {
+        _applyCommandPayload(command, emit: false);
+      }
+      _applyRelayStatusRows(map['relay_status']);
       final sensor = _coerceMap(map['sensor']);
       if (sensor != null) {
         applyEspPayload(sensor);
@@ -330,9 +402,10 @@ class GardenProvider extends ChangeNotifier {
   }
 
   Future<void> togglePump() async {
-    final base = _settings?.esp32Ip ?? '';
-    if (base.isEmpty) {
-      lastError = 'Thiếu URL server Node.js';
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key';
       notifyListeners();
       return;
     }
@@ -346,12 +419,15 @@ class GardenProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final map = await _esp32.postAction(
-        esp32Base: base,
+        serverBase: base,
+        apiKey: apiKey,
         action: next ? 'pump_on' : 'pump_off',
       );
-      final command =
-          _coerceMap(map['command']) ?? <String, dynamic>{'pump': next};
-      _applyCommandPayload(command, countWater: true, emit: false);
+      final command = _coerceMap(map['command']);
+      if (command != null) {
+        _applyCommandPayload(command, countWater: true, emit: false);
+      }
+      _applyRelayStatusRows(map['relay_status']);
       final sensor = _coerceMap(map['sensor']);
       if (sensor != null) {
         applyEspPayload(sensor);

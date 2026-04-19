@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/server_defaults.dart';
 import 'preference_keys.dart';
 
 class PreferencesService {
@@ -28,7 +29,10 @@ class PreferencesService {
   Future<Map<String, dynamic>> loadConnectionConfig() async {
     final prefs = await _p;
     return {
-      PreferenceKeys.esp32Ip: prefs.getString(PreferenceKeys.esp32Ip) ?? '',
+      PreferenceKeys.serverUrl: prefs.getString(PreferenceKeys.serverUrl) ??
+          prefs.getString(PreferenceKeys.esp32Ip) ??
+          kDefaultIotServerUrl,
+      PreferenceKeys.apiKey: prefs.getString(PreferenceKeys.apiKey) ?? '',
       PreferenceKeys.cameraUrl: prefs.getString(PreferenceKeys.cameraUrl) ?? '',
       PreferenceKeys.aiServerUrl:
           prefs.getString(PreferenceKeys.aiServerUrl) ?? '',
@@ -38,13 +42,15 @@ class PreferencesService {
   }
 
   Future<void> saveConnectionConfig({
-    required String esp32Ip,
+    required String serverUrl,
+    required String apiKey,
     required String cameraUrl,
     required String aiServerUrl,
     required bool autoWater,
   }) async {
     final prefs = await _p;
-    await prefs.setString(PreferenceKeys.esp32Ip, esp32Ip);
+    await prefs.setString(PreferenceKeys.serverUrl, serverUrl);
+    await prefs.setString(PreferenceKeys.apiKey, apiKey);
     await prefs.setString(PreferenceKeys.cameraUrl, cameraUrl);
     await prefs.setString(PreferenceKeys.aiServerUrl, aiServerUrl);
     await prefs.setBool(PreferenceKeys.autoWater, autoWater);

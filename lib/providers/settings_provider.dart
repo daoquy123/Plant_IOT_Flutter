@@ -9,7 +9,8 @@ class SettingsProvider extends ChangeNotifier {
 
   final PreferencesService _preferences;
 
-  String esp32Ip = '';
+  String serverUrl = '';
+  String apiKey = '';
   String cameraUrl = '';
   String aiServerUrl = '';
   bool autoWater = false;
@@ -31,7 +32,8 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> load() async {
     final map = await _preferences.loadConnectionConfig();
-    esp32Ip = map[PreferenceKeys.esp32Ip] as String? ?? '';
+    serverUrl = map[PreferenceKeys.serverUrl] as String? ?? '';
+    apiKey = map[PreferenceKeys.apiKey] as String? ?? '';
     cameraUrl = map[PreferenceKeys.cameraUrl] as String? ?? '';
     aiServerUrl = map[PreferenceKeys.aiServerUrl] as String? ?? '';
     autoWater = map[PreferenceKeys.autoWater] as bool? ?? false;
@@ -41,7 +43,8 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> saveAll() async {
     await _preferences.saveConnectionConfig(
-      esp32Ip: esp32Ip.trim(),
+      serverUrl: serverUrl.trim(),
+      apiKey: apiKey.trim(),
       cameraUrl: cameraUrl.trim(),
       aiServerUrl: aiServerUrl.trim(),
       autoWater: autoWater,
@@ -49,23 +52,28 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setEsp32Ip(String v) {
-    esp32Ip = v;
+  void setServerUrl(String value) {
+    serverUrl = value;
     notifyListeners();
   }
 
-  void setCameraUrl(String v) {
-    cameraUrl = v;
+  void setApiKey(String value) {
+    apiKey = value;
     notifyListeners();
   }
 
-  void setAiServerUrl(String v) {
-    aiServerUrl = v;
+  void setCameraUrl(String value) {
+    cameraUrl = value;
     notifyListeners();
   }
 
-  void setAutoWater(bool v) {
-    autoWater = v;
+  void setAiServerUrl(String value) {
+    aiServerUrl = value;
+    notifyListeners();
+  }
+
+  void setAutoWater(bool value) {
+    autoWater = value;
     notifyListeners();
   }
 }

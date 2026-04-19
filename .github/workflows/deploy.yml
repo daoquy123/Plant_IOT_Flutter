@@ -1,0 +1,35 @@
+name: Deploy Plant IoT
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          script: |
+            cd /path/to/plant-iot
+            git fetch --all
+            git reset --hard origin/main
+            cd server
+            npm install --production
+            pm2 start ../ecosystem.config.js --env production || pm2 reload ../ecosystem.config.js --env production
+            pm2 save
