@@ -15,12 +15,9 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _controller = TextEditingController();
   final _scroll = ScrollController();
   int _lastMessageCount = 0;
   String _selectedModel = 'vgg16';
-
-  static const _inputBarHeight = 48.0;
 
   @override
   void initState() {
@@ -32,7 +29,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    _controller.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -206,105 +202,49 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(4, 6, 8, 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      height: _inputBarHeight,
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          alignment: Alignment.center,
-                        ),
-                        onPressed: chat.sending
-                            ? null
-                            : () async {
-                                final reply = await context
-                                    .read<ChatProvider>()
-                                    .pickImageAndPredict();
-                                if (!context.mounted) return;
-                                if (reply != null && reply.trim().isNotEmpty) {
-                                  context
-                                      .read<GardenProvider>()
-                                      .setAiAnalysisFromServer(reply.trim());
-                                  await context
-                                      .read<NotificationsProvider>()
-                                      .add(
-                                        title: 'Phân tích AI',
-                                        body: reply.trim(),
-                                      );
-                                }
-                              },
-                        child: const Text('Ảnh'),
-                      ),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.center,
-                        child: TextField(
-                          controller: _controller,
-                          minLines: 1,
-                          maxLines: 4,
-                          textAlignVertical: TextAlignVertical.center,
-                          textInputAction: TextInputAction.send,
-                          decoration: InputDecoration(
-                            hintText: 'Nhập tin nhắn',
-                            isDense: true,
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide.none,
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide.none,
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide(
-                                color: scheme.primary.withValues(alpha: 0.45),
-                                width: 1.2,
+                  ),
+                  icon: const Icon(Icons.image_outlined),
+                  label: chat.sending
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('Đang gửi ảnh'),
+                            const SizedBox(width: 10),
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                color: scheme.onPrimary,
                               ),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 14,
-                            ),
-                          ),
-                          onSubmitted: (_) => _send(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    SizedBox(
-                      height: _inputBarHeight,
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(52, _inputBarHeight),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          alignment: Alignment.center,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        onPressed: chat.sending ? null : _send,
-                        child: chat.sending
-                            ? SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.2,
-                                  color: scheme.onPrimary,
-                                ),
-                              )
-                            : const Text('Gửi'),
-                      ),
-                    ),
-                  ],
+                          ],
+                        )
+                      : const Text('Gửi ảnh'),
+                  onPressed: chat.sending
+                      ? null
+                      : () async {
+                          final reply = await context
+                              .read<ChatProvider>()
+                              .pickImageAndPredict();
+                          if (!context.mounted) return;
+                          if (reply != null && reply.trim().isNotEmpty) {
+                            context
+                                .read<GardenProvider>()
+                                .setAiAnalysisFromServer(reply.trim());
+                            await context.read<NotificationsProvider>().add(
+                                  title: 'Phân tích AI',
+                                  body: reply.trim(),
+                                );
+                          }
+                        },
                 ),
               ),
             ),
@@ -314,11 +254,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _send() async {
-    final t = _controller.text;
-    _controller.clear();
-    await context.read<ChatProvider>().sendUserText(t);
-  }
 }
 
 class _Bubble extends StatelessWidget {

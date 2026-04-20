@@ -12,6 +12,7 @@ function toNumber(value) {
 }
 
 router.post('/', (req, res, next) => {
+  console.log('Received sensor data:', JSON.stringify(req.body, null, 2));
   const body = req.body || {};
   const payload = {
     temperature: toNumber(body.temperature) ?? toNumber(body.air_temp),

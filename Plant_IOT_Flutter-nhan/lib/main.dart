@@ -11,22 +11,24 @@ import 'theme/app_theme.dart';
 import 'sqlite_ffi_stub.dart' if (dart.library.io) 'sqlite_ffi_io.dart'
     as sqlite_ffi;
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   sqlite_ffi.configureSqliteFfi();
-  runApp(const SmartGardenApp());
+  final settings = SettingsProvider();
+  await settings.load();
+  runApp(SmartGardenApp(settings: settings));
 }
 
 class SmartGardenApp extends StatelessWidget {
-  const SmartGardenApp({super.key});
+  const SmartGardenApp({super.key, required this.settings});
+
+  final SettingsProvider settings;
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(
-          create: (_) => SettingsProvider()..load(),
-        ),
+        ChangeNotifierProvider.value(value: settings),
         ChangeNotifierProvider(
           create: (_) => NotificationsProvider()..load(),
         ),

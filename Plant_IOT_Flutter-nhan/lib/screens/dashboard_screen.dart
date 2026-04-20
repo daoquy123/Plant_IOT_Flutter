@@ -37,7 +37,7 @@ Widget buildCameraStream(
         Positioned.fill(
           child: Image.network(
             url,
-            fit: BoxFit.cover,
+            fit: BoxFit.none,
             errorBuilder: (context, error, stackTrace) =>
                 const SizedBox.shrink(),
           ),

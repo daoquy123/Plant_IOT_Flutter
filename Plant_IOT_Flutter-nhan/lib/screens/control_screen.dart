@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,8 +6,60 @@ import '../providers/garden_provider.dart';
 import '../widgets/app_card.dart';
 import '../widgets/section_label.dart';
 
-class ControlScreen extends StatelessWidget {
+class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key});
+
+  @override
+  State<ControlScreen> createState() => _ControlScreenState();
+}
+
+class _ControlScreenState extends State<ControlScreen> {
+  int shadeCooldown = 0;
+  Timer? _timer;
+
+  void startCooldown() {
+    setState(() {
+      shadeCooldown = 60;
+    });
+
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (shadeCooldown == 0) {
+        timer.cancel();
+      } else {
+        setState(() {
+          shadeCooldown--;
+        });
+      }
+    });
+  }
+
+  Future<bool> showConfirm(BuildContext context, String message) async {
+    return await showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text("Xác nhận"),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text("Hủy"),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text("Đồng ý"),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +79,8 @@ class ControlScreen extends StatelessWidget {
                 GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
@@ -39,7 +93,8 @@ class ControlScreen extends StatelessWidget {
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment:
+                            MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
                             s.name,
@@ -47,15 +102,16 @@ class ControlScreen extends StatelessWidget {
                                 .textTheme
                                 .labelLarge
                                 ?.copyWith(
-                                  color:
-                                      scheme.onSurface.withValues(alpha: 0.5),
+                                  color: scheme.onSurface
+                                      .withValues(alpha: 0.5),
                                   fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.2,
                                 ),
                           ),
                           Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
+                            crossAxisAlignment:
+                                CrossAxisAlignment.baseline,
+                            textBaseline:
+                                TextBaseline.alphabetic,
                             children: [
                               Text(
                                 s.valueLabel,
@@ -64,7 +120,6 @@ class ControlScreen extends StatelessWidget {
                                     .headlineSmall
                                     ?.copyWith(
                                       fontWeight: FontWeight.w700,
-                                      letterSpacing: -0.5,
                                     ),
                               ),
                               const SizedBox(width: 5),
@@ -76,7 +131,6 @@ class ControlScreen extends StatelessWidget {
                                     ?.copyWith(
                                       color: scheme.onSurface
                                           .withValues(alpha: 0.45),
-                                      fontWeight: FontWeight.w600,
                                     ),
                               ),
                             ],
@@ -86,38 +140,87 @@ class ControlScreen extends StatelessWidget {
                     );
                   },
                 ),
+
                 const SizedBox(height: 26),
                 const SectionLabel('Thiết bị'),
                 const SizedBox(height: 4),
+
+                /// 🌿 MÀN CHE
                 _ControlRow(
                   label: 'Màn che',
                   on: garden.shadeOn,
-                  busy: garden.iotBusy,
+                  busy: garden.iotBusy || shadeCooldown > 0,
                   subtitle:
                       'Trạng thái hiện tại: ${garden.shadeOn ? 'Đang mở' : 'Đang đóng'}',
-                  onLabel: 'Đóng',
-                  offLabel: 'Mở',
-                  onPressed: () => context.read<GardenProvider>().toggleShade(),
+                  onLabel: shadeCooldown > 0
+                      ? '${shadeCooldown}s'
+                      : 'Đóng',
+                  offLabel: shadeCooldown > 0
+                      ? '${shadeCooldown}s'
+                      : 'Mở',
+                  onPressed: () async {
+                    final confirm = await showConfirm(
+                      context,
+                      garden.shadeOn
+                          ? "Bạn có muốn ĐÓNG màn che?"
+                          : "Bạn có muốn MỞ màn che?",
+                    );
+
+                    if (!confirm) return;
+
+                    if (garden.shadeOn) {
+                      await context
+                          .read<GardenProvider>()
+                          .closeShade();
+                    } else {
+                      await context
+                          .read<GardenProvider>()
+                          .openShade();
+                    }
+
+                    startCooldown(); // 🔥 khóa 60s
+                  },
                 ),
+
                 const SizedBox(height: 12),
+
+                /// 💧 MÁY BƠM
                 _ControlRow(
                   label: 'Máy bơm',
                   on: garden.pumpDisplayOn,
                   busy: garden.iotBusy,
                   subtitle:
-                      'Hôm nay tưới: ${garden.waterTodayCount} lần • ${garden.pumpDisplayOn ? 'Đang bật' : 'Đang tắt'}',
-                  onLabel: 'Tắt',
-                  offLabel: 'Bật',
-                  onPressed: () => context.read<GardenProvider>().togglePump(),
+                      'Trạng thái: ${garden.pumpDisplayOn ? 'Đang tắt' : 'Đang bật'}',
+                  onLabel: 'Bật',
+                  offLabel: 'Tắt',
+                  onPressed: () async {
+                    final confirm = await showConfirm(
+                      context,
+                      garden.pumpDisplayOn
+                          ? "Bạn có muốn Bật máy bơm?"
+                          : "Bạn có muốn Tắt máy bơm?",
+                    );
+
+                    if (!confirm) return;
+
+                    context
+                        .read<GardenProvider>()
+                        .togglePump();
+                  },
                 ),
               ],
             ),
           ),
+
+          /// ⏳ LOADING OVERLAY
           if (garden.iotBusy)
             Positioned.fill(
               child: ColoredBox(
-                color: scheme.surface.withValues(alpha: 0.82),
-                child: const Center(child: CircularProgressIndicator()),
+                color: scheme.surface
+                    .withValues(alpha: 0.82),
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
               ),
             ),
         ],
@@ -148,18 +251,23 @@ class _ControlRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+
     return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
               children: [
                 Text(
                   label,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                 ),
@@ -167,9 +275,12 @@ class _ControlRow extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     subtitle!,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurface.withValues(alpha: 0.52),
-                          height: 1.35,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(
+                          color: scheme.onSurface
+                              .withValues(alpha: 0.52),
                         ),
                   ),
                 ],

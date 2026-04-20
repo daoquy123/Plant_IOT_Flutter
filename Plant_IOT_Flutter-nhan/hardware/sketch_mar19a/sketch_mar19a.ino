@@ -47,8 +47,14 @@ static const uint32_t HTTP_TIMEOUT_MS = 20000;
 #define PUMP_PIN 18
 
 const int stepsPerRevolution = 2048;
-Stepper myStepper(stepsPerRevolution, 13, 14, 12, 27);
+// NOTE: If shade motor rotates wrong direction, try reversing pin order:
+// Current: Stepper(stepsPerRevolution, 13, 14, 12, 27);
+// Reverse: Stepper(stepsPerRevolution, 27, 12, 14, 13);
+Stepper myStepper(stepsPerRevolution, 13, 12, 14, 27);
 DHT dht(DHTPIN, DHTTYPE);
+
+// Flag to reverse motor direction if needed (set to true if motor spins opposite direction)
+const bool REVERSE_SHADE_DIRECTION = false;
 
 bool isCoverOpen = false;
 
@@ -206,8 +212,16 @@ bool fetchRelayStatusOnce() {
       st = row["state"].as<bool>();
     }
 
-    if (rid == 1) wantShadeOpen = st;
-    if (rid == 2) wantPumpOn = st;
+    Serial.printf("[API] relay_id=%d, state=%d (bool=%d)\n", rid, (int)st, (int)st);
+
+    if (rid == 1) {
+      wantShadeOpen = st;
+      Serial.printf("[STATE] wantShadeOpen=%d\n", (int)wantShadeOpen);
+    }
+    if (rid == 2) {
+      wantPumpOn = st;
+      Serial.printf("[STATE] wantPumpOn=%d\n", (int)wantPumpOn);
+    }
   }
 
   return true;
@@ -231,21 +245,41 @@ void applyPumpOutput() {
 }
 
 /**
- * Stepper: relay_id 1 true = mở màn (giống cover true cũ).
+ * Stepper: relay_id 1
+ * - true (shade_on) = MỞ màn → quay ngược chiều kim đồng hồ
+ * - false (shade_off) = ĐÓNG màn → quay cùng chiều kim đồng hồ
+ * 
+ * If motor spins wrong direction, set REVERSE_SHADE_DIRECTION = true
  */
 void applyShadeOutput() {
-  static bool lastWant = false;
-  if (wantShadeOpen == lastWant) return;
-  lastWant = wantShadeOpen;
+  Serial.printf("[SHADE] want=%d, isOpen=%d\n",
+                (int)wantShadeOpen, (int)isCoverOpen);
 
+  int stepCount = stepsPerRevolution * 9;
+
+  // Tùy chỉnh đảo chiều nếu motor quay ngược
+  int openSteps  = REVERSE_SHADE_DIRECTION ? -stepCount : stepCount;
+  int closeSteps = REVERSE_SHADE_DIRECTION ? stepCount : -stepCount;
+
+  // ✅ MỞ màn
   if (wantShadeOpen && !isCoverOpen) {
-    myStepper.step(-stepsPerRevolution * 9);
+    Serial.println("[SHADE] OPENING...");
+    myStepper.step(openSteps);
     isCoverOpen = true;
-    Serial.println(F("[HW] Shade OPEN"));
-  } else if (!wantShadeOpen && isCoverOpen) {
-    myStepper.step(stepsPerRevolution * 9);
+    Serial.println("[HW] Shade OPEN - completed");
+    delay(500);
+  }
+  // ✅ ĐÓNG màn
+  else if (!wantShadeOpen && isCoverOpen) {
+    Serial.println("[SHADE] CLOSING...");
+    myStepper.step(closeSteps);
     isCoverOpen = false;
-    Serial.println(F("[HW] Shade CLOSE"));
+    Serial.println("[HW] Shade CLOSE - completed");
+    delay(500);
+  }
+  // ✅ KHÔNG LÀM GÌ
+  else {
+    Serial.println("[SHADE] No action needed");
   }
 }
 
@@ -263,6 +297,15 @@ void setup() {
   dht.begin();
 
   connectWiFi();
+   // 🔥 SYNC trạng thái từ server ngay khi khởi động
+ Serial.println("[INIT] Sync relay state...");
+fetchRelayStatus();
+
+// 🔥 FIX: đồng bộ trạng thái thật
+isCoverOpen = wantShadeOpen;
+
+applyPumpOutput();
+applyShadeOutput();
 }
 
 void loop() {

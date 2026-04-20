@@ -37,14 +37,13 @@ class GardenProvider extends ChangeNotifier {
   String? latestImageUrl;
 
   bool shadeOn = false;
-  bool pumpOn = false;
-  bool pumpManuallyActivated = false;
+  bool pumpOn = true;
   int waterTodayCount = 0;
 
   bool iotBusy = false;
   String? lastError;
 
-  bool get pumpDisplayOn => pumpManuallyActivated && pumpOn;
+  bool get pumpDisplayOn => pumpOn;
 
   List<SensorDisplay> get sensorTiles => [
         SensorDisplay(
@@ -70,8 +69,12 @@ class GardenProvider extends ChangeNotifier {
       ];
 
   void _ensureRealtimeConnection() {
-    final rawBase = _settings?.serverUrl.trim() ?? '';
-    final apiKey = _settings?.apiKey.trim() ?? '';
+    final rawBase = _settings?.serverUrl.trim().isNotEmpty == true
+        ? _settings!.serverUrl.trim()
+        : kDefaultIotServerUrl;
+    final apiKey = _settings?.apiKey.trim().isNotEmpty == true
+        ? _settings!.apiKey.trim()
+        : 'a90cfc28468dc7b73eda44573bebb3a6d39981c92f449a9fc3cda4e56e113ce0'; // Default API key from ESP32
 
     if (rawBase.isEmpty || apiKey.isEmpty) {
       _socket?.disconnect();
@@ -105,10 +108,12 @@ class GardenProvider extends ChangeNotifier {
           .build(),
     );
 
-    socket.onConnect((_) {
+    socket.onConnect((_) async {
       lastError = null;
       gardenStatus = 'Đã kết nối server IoT';
       notifyListeners();
+      await _fetchInitialData(normalizedBase, apiKey);
+      
     });
     socket.onDisconnect((_) {
       gardenStatus = 'Mất kết nối server IoT';
@@ -135,11 +140,14 @@ class GardenProvider extends ChangeNotifier {
       }
     });
     socket.on('relay', (data) {
-      final map = _coerceMap(data);
-      if (map == null) return;
-      final rows = map['relay_status'];
-      _applyRelayStatusRows(rows);
-    });
+  if (iotBusy) return; // 🔥 CHẶN socket khi đang bấm nút
+
+  final map = _coerceMap(data);
+  if (map == null) return;
+
+  final rows = map['relay_status'];
+  _applyRelayStatusRows(rows);
+});
     socket.on('camera', (data) {
       final map = _coerceMap(data);
       String? url;
@@ -301,6 +309,21 @@ class GardenProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _fetchInitialData(String serverBase, String apiKey) async {
+    try {
+      final sensorMap = await _esp32.fetchLatestSensor(
+        serverBase: serverBase,
+        apiKey: apiKey,
+      );
+      if (sensorMap.isNotEmpty) {
+        final payload = _coerceMap(sensorMap['sensor']) ?? sensorMap;
+        applyEspPayload(payload);
+      }
+    } catch (_) {
+      // Ignore errors during initial fetch
+    }
+  }
+
   void setAiAnalysisFromServer(String line) {
     aiAnalysis = line;
     notifyListeners();
@@ -401,6 +424,51 @@ class GardenProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> openShade() async {
+    await _controlShade(true);
+  }
+
+  Future<void> closeShade() async {
+    await _controlShade(false);
+  }
+
+  Future<void> _controlShade(bool open) async {
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key';
+      notifyListeners();
+      return;
+    }
+    final previousShade = shadeOn;
+    shadeOn = open;
+    iotBusy = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final map = await _esp32.postAction(
+        serverBase: base,
+        apiKey: apiKey,
+        action: open ? 'shade_on' : 'shade_off',
+      );
+      final command = _coerceMap(map['command']);
+      if (command != null) {
+        _applyCommandPayload(command, emit: false);
+      }
+      _applyRelayStatusRows(map['relay_status']);
+      final sensor = _coerceMap(map['sensor']);
+      if (sensor != null) {
+        applyEspPayload(sensor);
+      }
+    } catch (e) {
+      shadeOn = previousShade;
+      lastError = e.toString();
+    } finally {
+      iotBusy = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> togglePump() async {
     final base = _settings?.serverUrl ?? '';
     final apiKey = _settings?.apiKey ?? '';
@@ -410,9 +478,7 @@ class GardenProvider extends ChangeNotifier {
       return;
     }
     final previousPump = pumpOn;
-    final previousManual = pumpManuallyActivated;
-    final next = !pumpDisplayOn;
-    pumpManuallyActivated = true;
+    final next = !pumpOn;
     pumpOn = next;
     iotBusy = true;
     lastError = null;
@@ -434,7 +500,6 @@ class GardenProvider extends ChangeNotifier {
       }
     } catch (e) {
       pumpOn = previousPump;
-      pumpManuallyActivated = previousManual;
       lastError = e.toString();
     } finally {
       iotBusy = false;
