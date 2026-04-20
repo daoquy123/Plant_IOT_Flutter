@@ -272,7 +272,7 @@ class GardenProvider extends ChangeNotifier {
   }
 
   void applyEspPayload(Map<String, dynamic> json) {
-    final m = json['current_moisture'] ?? json['soil'];
+    final m = json['soil_moisture'] ?? json['current_moisture'] ?? json['soil'];
     if (m is num) {
       currentMoistureRaw = m.round();
       currentMoisture = _toPercent(m);
