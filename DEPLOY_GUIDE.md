@@ -1,4 +1,4 @@
-# Plant IoT Flutter - Hướng dẫn Deploy lên VPS Cloud
+# Plant IoT Flutter - Hướng dẫn Deploy lênssh ubuntu@103.116.38.49 VPS Cloud
 
 ## Tổng quan
 Hệ thống IoT vườn thông minh gồm:
