@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../data/ai_predict_client.dart';
 import '../data/chat_database.dart';
@@ -87,7 +90,7 @@ class ChatProvider extends ChangeNotifier {
 
   /// Gửi ảnh lên predict-api; chèn tin nhắn user + phản hồi AI vào thread duy nhất.
   /// Trả về nội dung phân tích khi thành công (để đồng bộ tình trạng cây).
-  Future<String?> pickImageAndPredict() async {
+  Future<String?> pickImageAndPredict({String? model}) async {
     final file = await _picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 85,
@@ -107,7 +110,9 @@ class ChatProvider extends ChangeNotifier {
 
     try {
       final userRow = await _db.insertMessage(
-        text: '[Ảnh đính kèm]',
+        text: model == null || model.trim().isEmpty
+            ? '[Ảnh đính kèm]'
+            : '[Ảnh đính kèm - ${model.trim()}]',
         senderType: SenderType.user,
         localImagePath: file.path,
       );
@@ -117,8 +122,9 @@ class ChatProvider extends ChangeNotifier {
       final map = await _ai.predictImageFile(
         predictEndpoint: endpoint,
         imageFile: File(file.path),
+        model: model,
       );
-      final reply = formatPredictReply(map);
+      final reply = formatPredictReply(map, model: model);
       final aiRow = await _db.insertMessage(
         text: reply,
         senderType: SenderType.ai,
@@ -162,19 +168,20 @@ class ChatProvider extends ChangeNotifier {
         preferredImageUrl: preferredImageUrl,
       );
       final imageBytes = await _downloadImageBytes(imageUrl);
-      final filename = Uri.tryParse(imageUrl)?.pathSegments.isNotEmpty == true
-          ? Uri.parse(imageUrl).pathSegments.last
-          : 'camera_latest.jpg';
+      final flippedBytes = await _flipImageVertically(imageBytes);
+      final previewImagePath = await _savePreviewImageBytes(flippedBytes);
+      const filename = 'camera_latest_flipped.png';
       final userRow = await _db.insertMessage(
         text: '[Kiểm tra sức khỏe cây - $model]',
         senderType: SenderType.user,
+        localImagePath: previewImagePath,
       );
       messages.add(userRow);
       notifyListeners();
 
       final map = await _ai.predictImageBytes(
         predictEndpoint: endpoint,
-        bytes: imageBytes,
+        bytes: flippedBytes,
         filename: filename,
         model: model,
       );
@@ -423,6 +430,32 @@ class ChatProvider extends ChangeNotifier {
       throw const FormatException('Ảnh camera trống, không thể phân tích');
     }
     return bytes;
+  }
+
+  Future<String> _savePreviewImageBytes(Uint8List bytes) async {
+    final dir = await getTemporaryDirectory();
+    final fileName = 'ai_check_${DateTime.now().millisecondsSinceEpoch}.png';
+    final filePath = p.join(dir.path, fileName);
+    final file = File(filePath);
+    await file.writeAsBytes(bytes, flush: true);
+    return filePath;
+  }
+
+  Future<Uint8List> _flipImageVertically(Uint8List bytes) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    canvas.translate(0, image.height.toDouble());
+    canvas.scale(1, -1);
+    canvas.drawImage(image, ui.Offset.zero, ui.Paint());
+    final flipped = await recorder.endRecording().toImage(image.width, image.height);
+    final byteData = await flipped.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData == null) {
+      throw const FormatException('Không thể xử lý ảnh camera để lật dọc');
+    }
+    return byteData.buffer.asUint8List();
   }
 
   static String formatPredictReply(

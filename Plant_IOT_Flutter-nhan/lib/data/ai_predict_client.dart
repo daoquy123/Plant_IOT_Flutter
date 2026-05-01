@@ -24,7 +24,11 @@ class AiPredictClient {
       request.fields['model'] = model.trim();
     }
     request.files.add(
-      await http.MultipartFile.fromPath(fileField, imageFile.path),
+      await http.MultipartFile.fromPath(
+        fileField,
+        imageFile.path,
+        contentType: _inferImageContentType(imageFile.path),
+      ),
     );
     return _sendAndDecode(request);
   }
