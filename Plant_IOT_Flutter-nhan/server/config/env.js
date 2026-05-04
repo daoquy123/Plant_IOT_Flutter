@@ -27,6 +27,11 @@ const config = {
   CORS_ORIGINS: corsRaw,
   /** Express trust proxy (1 = first proxy hop, true = trust all). Required behind Nginx for correct HTTPS URLs. */
   TRUST_PROXY: trustProxyRaw === 'true' ? true : Number(trustProxyRaw) || 1,
+  MQTT_URL: process.env.MQTT_URL || 'mqtt://localhost:1883',
+  MQTT_CLIENT_ID: process.env.MQTT_CLIENT_ID || `plant-server-${process.pid}`,
+  MQTT_USERNAME: process.env.MQTT_USERNAME || '',
+  MQTT_PASSWORD: process.env.MQTT_PASSWORD || '',
+  MQTT_USE_API_KEY_AUTH: (process.env.MQTT_USE_API_KEY_AUTH || 'false').toLowerCase() === 'true',
 };
 
 function validateEnv() {
@@ -44,6 +49,9 @@ function validateEnv() {
   }
   if (!Number.isFinite(config.IMAGE_RETENTION_DAYS) || config.IMAGE_RETENTION_DAYS <= 0) {
     throw new Error('IMAGE_RETENTION_DAYS must be a positive number');
+  }
+  if (!config.MQTT_URL.trim()) {
+    throw new Error('MQTT_URL must not be empty');
   }
 }
 

@@ -5,7 +5,6 @@ import '../models/chat_message.dart';
 import '../providers/chat_provider.dart';
 import '../providers/garden_provider.dart';
 import '../providers/notifications_provider.dart';
-import '../providers/settings_provider.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -18,6 +17,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scroll = ScrollController();
   int _lastMessageCount = 0;
   String _selectedModel = 'vgg16';
+  bool _healthCheckBusy = false;
 
   @override
   void initState() {
@@ -31,6 +31,44 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _scroll.dispose();
     super.dispose();
+  }
+
+  Future<void> _startHealthCheckCapture() async {
+    if (_healthCheckBusy) return;
+    final garden = context.read<GardenProvider>();
+    final chat = context.read<ChatProvider>();
+    final notifications = context.read<NotificationsProvider>();
+
+    setState(() => _healthCheckBusy = true);
+    try {
+      final imageUrl = await garden.waitForNewCameraImageAfterRequest();
+      if (!mounted) return;
+      if (imageUrl == null || imageUrl.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Không nhận được ảnh mới từ camera. Kiểm tra ESP32-CAM, Nginx/socket.io và thử lại.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      final reply = await chat.analyzeCurrentCameraImage(
+        model: _selectedModel,
+        preferredImageUrl: imageUrl.trim(),
+      );
+      if (!mounted) return;
+      if (reply != null && reply.trim().isNotEmpty) {
+        garden.setAiAnalysisFromServer(reply.trim());
+        await notifications.add(
+          title: 'Phân tích AI',
+          body: reply.trim(),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _healthCheckBusy = false);
+    }
   }
 
   void _scrollToEnd() {
@@ -138,28 +176,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
-                  onPressed: chat.sending
+                  onPressed: (chat.sending || _healthCheckBusy)
                       ? null
                       : () async {
                           if (s == 'Kiểm tra sức khỏe cây') {
-                            final garden = context.read<GardenProvider>();
-                            final settings = context.read<SettingsProvider>();
-                            final preferredImage = (garden.latestImageUrl?.trim().isNotEmpty ?? false)
-                                ? garden.latestImageUrl!.trim()
-                                : settings.cameraUrl.trim();
-                            final reply = await context.read<ChatProvider>().analyzeCurrentCameraImage(
-                                  model: _selectedModel,
-                                  preferredImageUrl:
-                                      preferredImage.isEmpty ? null : preferredImage,
-                                );
-                            if (!context.mounted) return;
-                            if (reply != null && reply.trim().isNotEmpty) {
-                              context.read<GardenProvider>().setAiAnalysisFromServer(reply.trim());
-                              await context.read<NotificationsProvider>().add(
-                                    title: 'Phân tích AI',
-                                    body: reply.trim(),
-                                  );
-                            }
+                            await _startHealthCheckCapture();
                             return;
                           }
                           final garden = context.read<GardenProvider>();

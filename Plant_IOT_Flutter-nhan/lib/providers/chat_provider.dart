@@ -371,6 +371,13 @@ class ChatProvider extends ChangeNotifier {
     return value.toStringAsFixed(decimals);
   }
 
+  String _cacheBustUrl(String url) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+    final sep = u.contains('?') ? '&' : '?';
+    return '$u${sep}cb=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
   Future<String> _resolveLatestCameraUrl({
     required String serverBase,
     required String apiKey,
@@ -378,7 +385,10 @@ class ChatProvider extends ChangeNotifier {
   }) async {
     final preferred = preferredImageUrl?.trim() ?? '';
     if (preferred.isNotEmpty) {
-      return _normalizeImageUrl(serverBase: serverBase, rawUrl: preferred);
+      return _normalizeImageUrl(
+        serverBase: serverBase,
+        rawUrl: _cacheBustUrl(preferred),
+      );
     }
     final imageMap = await _esp32.fetchLatestImage(
       serverBase: serverBase,
@@ -395,7 +405,10 @@ class ChatProvider extends ChangeNotifier {
     if (imageUrl == null || imageUrl.trim().isEmpty) {
       throw StateError('Chưa có ảnh camera mới nhất để phân tích');
     }
-    return _normalizeImageUrl(serverBase: serverBase, rawUrl: imageUrl);
+    return _normalizeImageUrl(
+      serverBase: serverBase,
+      rawUrl: _cacheBustUrl(imageUrl),
+    );
   }
 
   String _normalizeImageUrl({

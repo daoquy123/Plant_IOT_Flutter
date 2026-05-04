@@ -90,6 +90,21 @@ class Esp32Client {
     return _decodeMap(response);
   }
 
+  Future<Map<String, dynamic>> requestCapture({
+    required String serverBase,
+    required String apiKey,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/camera/request-capture');
+    final response = await _client
+        .post(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode(<String, dynamic>{}),
+        )
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
   Future<Map<String, dynamic>> fetchRelayStatus({
     required String serverBase,
     required String apiKey,

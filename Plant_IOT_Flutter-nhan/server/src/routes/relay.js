@@ -73,6 +73,9 @@ router.post('/', (req, res, next) => {
     }
 
     req.app.locals.io.emit('relay', { relay_status: relayStatus });
+    if (typeof req.app.locals.publishRelayState === 'function') {
+      req.app.locals.publishRelayState(relayStatus);
+    }
     res.json({
       success: true,
       relay_status: relayStatus,

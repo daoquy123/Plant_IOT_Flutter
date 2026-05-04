@@ -1,7 +1,7 @@
 /*
- * ESP32-CAM (AI-Thinker) — Periodic JPEG upload to Node backend (HTTPS)
- * Dự án: PBL5 - Hệ thống giám sát hình ảnh
- * * Lưu ý: Chọn Board "AI Thinker ESP32-CAM" và Enable PSRAM trong Arduino IDE.
+ * ESP32-CAM (AI-Thinker) - server-relay streaming + on-demand capture.
+ * Stream path: POST /api/camera/frame (raw JPEG)
+ * Capture path: poll /api/camera/command then POST /api/camera/upload (multipart)
  */
 
 #include "esp_camera.h"
@@ -9,25 +9,42 @@
 #include <WiFiManager.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
-#include <esp_heap_caps.h>
 
-// ===================== CẤU HÌNH NGƯỜI DÙNG =====================
+// ===================== USER CONFIG =====================
 static const char *API_KEY = "a90cfc28468dc7b73eda44573bebb3a6d39981c92f449a9fc3cda4e56e113ce0";
 static const char *API_HOST = "five-small-snowflake.site";
+static const uint16_t HTTPS_PORT = 443;
+
+static const char *STREAM_PATH = "/api/camera/frame";
+static const char *COMMAND_PATH = "/api/camera/command";
 static const char *UPLOAD_PATH = "/api/camera/upload";
 
-// GPIO0: Giữ 3s để xóa WiFi cũ nếu cần cấu hình lại
 static const int WIFI_RESET_PIN = 0;
-static const unsigned long UPLOAD_INTERVAL_MS = 8000;
-static const uint32_t HTTP_TIMEOUT_MS = 30000;
+static const unsigned long WIFI_RESET_HOLD_MS = 3000;
+static const unsigned long STREAM_INTERVAL_MS = 400;   // 2-5 FPS target
+static const unsigned long COMMAND_POLL_MS = 2500;     // poll capture command every 2-3s
+static const unsigned long WIFI_RETRY_MS = 5000;
+static const uint32_t HTTP_TIMEOUT_MS = 15000;
+
+// Stream profile (lightweight for RAM/CPU/bandwidth)
+static const framesize_t STREAM_SIZE = FRAMESIZE_QVGA;
+static const int STREAM_QUALITY = 14;
+
+// Capture profile (high quality on demand only)
+static const framesize_t CAPTURE_SIZE = FRAMESIZE_UXGA;
+static const int CAPTURE_QUALITY = 9;
 
 WiFiManager wm;
-unsigned long lastUploadMs = 0;
+unsigned long lastStreamMs = 0;
+unsigned long lastCommandPollMs = 0;
+unsigned long lastWiFiRetryMs = 0;
+unsigned long resetPressStartMs = 0;
 
-// ----- Cấu hình chân AI-Thinker ESP32-CAM -----
+// ----- AI-Thinker ESP32-CAM pins -----
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
@@ -45,7 +62,24 @@ unsigned long lastUploadMs = 0;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// -------------------- Khởi tạo Camera -------------------------
+String buildUrl(const char *path) {
+  return String("https://") + API_HOST + path;
+}
+
+void applyStreamProfile() {
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) return;
+  s->set_framesize(s, STREAM_SIZE);
+  s->set_quality(s, STREAM_QUALITY);
+}
+
+void applyCaptureProfile() {
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) return;
+  s->set_framesize(s, CAPTURE_SIZE);
+  s->set_quality(s, CAPTURE_QUALITY);
+}
+
 bool initCamera() {
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -66,18 +100,12 @@ bool initCamera() {
   config.pin_sscb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 10000000; // 10MHz để giảm nhiễu và điện năng
+  config.xclk_freq_hz = 10000000;
   config.pixel_format = PIXFORMAT_JPEG;
-
-  if (psramFound()) {
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 12; // 0-63, số thấp chất lượng cao hơn
-    config.fb_count = 2;
-  } else {
-    config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 16;
-    config.fb_count = 1;
-  }
+  config.frame_size = STREAM_SIZE;
+  config.jpeg_quality = STREAM_QUALITY;
+  config.fb_count = psramFound() ? 2 : 1;
+  config.grab_mode = CAMERA_GRAB_LATEST;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -85,152 +113,215 @@ bool initCamera() {
     return false;
   }
 
-  sensor_t *s = esp_camera_sensor_get();
-  if (s) s->set_brightness(s, 0); 
+  applyStreamProfile();
   return true;
 }
 
-// -------------------- Kết nối WiFi ----------------------------
 void connectWiFi() {
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false); // Ngăn ngắt kết nối do tiết kiệm điện
+  WiFi.setSleep(false);
 
-  // Cấu hình WiFiManager để chạy nhẹ nhất
-  wm.setConnectTimeout(60); 
+  wm.setConnectTimeout(60);
   wm.setConfigPortalTimeout(180);
-  wm.setMinimumSignalQuality(15); // Bỏ qua các mạng quá yếu gây tràn RAM
+  wm.setMinimumSignalQuality(15);
 
-  Serial.println(F("[WiFi] Dang thu ket noi lai..."));
-
-  // Thử kết nối tự động, nếu không được mới mở Portal "ESP32_Config"
+  Serial.println(F("[WiFi] Auto connecting..."));
   if (!wm.autoConnect("ESP32_Config")) {
-    Serial.println(F("[WiFi] Failed, restarting..."));
-    delay(3000);
+    Serial.println(F("[WiFi] Failed, restart..."));
+    delay(2000);
     ESP.restart();
   }
 
-  Serial.print(F("[WiFi] Da ket noi! IP: "));
+  Serial.print(F("[WiFi] Connected IP: "));
   Serial.println(WiFi.localIP());
 }
 
-// -------------------- Upload ảnh (HTTPS) --------------------
-bool uploadFrameMultipart(camera_fb_t *fb) {
-  if (!fb || fb->len == 0) return false;
-
-  // Sử dụng con trỏ để giải phóng RAM triệt để cho SSL
-  WiFiClientSecure *client = new WiFiClientSecure;
-  if (!client) {
-    Serial.println(F("[API] Khong du RAM cho SSL Client"));
-    return false;
+void checkWiFiResetButton() {
+  if (digitalRead(WIFI_RESET_PIN) == LOW) {
+    if (resetPressStartMs == 0) {
+      resetPressStartMs = millis();
+    } else if (millis() - resetPressStartMs >= WIFI_RESET_HOLD_MS) {
+      Serial.println(F("[WiFi] Reset settings requested"));
+      wm.resetSettings();
+      delay(300);
+      ESP.restart();
+    }
+  } else {
+    resetPressStartMs = 0;
   }
-  client->setInsecure(); // Bỏ qua kiểm tra chứng chỉ SSL Let's Encrypt
-
-  HTTPClient http;
-  http.setReuse(false);
-  http.setTimeout(HTTP_TIMEOUT_MS);
-
-  String url = "https://" + String(API_HOST) + UPLOAD_PATH;
-
-  if (!http.begin(*client, url)) {
-    Serial.println(F("[API] HTTP begin failed"));
-    delete client;
-    return false;
-  }
-
-  const char *boundary = "----ESP32CAMBoundary7MA4YWxk";
-  String head = "--" + String(boundary) + "\r\nContent-Disposition: form-data; name=\"image\"; filename=\"cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
-  String tail = "\r\n--" + String(boundary) + "--\r\n";
-  size_t totalLen = head.length() + fb->len + tail.length();
-
-  uint8_t *body = (uint8_t *)heap_caps_malloc(totalLen, MALLOC_CAP_8BIT);
-  if (!body) {
-    Serial.println(F("[API] Malloc body failed"));
-    http.end();
-    delete client;
-    return false;
-  }
-
-  memcpy(body, head.c_str(), head.length());
-  memcpy(body + head.length(), fb->buf, fb->len);
-  memcpy(body + head.length() + fb->len, tail.c_str(), tail.length());
-
-  http.addHeader("Content-Type", "multipart/form-data; boundary=" + String(boundary));
-  http.addHeader("X-API-KEY", API_KEY);
-  http.addHeader("Connection", "keep-alive");
-
-  int code = http.POST(body, totalLen);
-  Serial.printf("[API] POST Result: %d (Size: %u bytes)\n", code, (unsigned int)totalLen);
-
-  if (code > 0) {
-    String response = http.getString();
-    Serial.println("[SERVER] " + response);
-  }
-
-  free(body);
-  http.end();
-  delete client; 
-  return (code >= 200 && code < 300);
 }
 
-// ===================== SETUP / LOOP =================
+bool postStreamFrame(camera_fb_t *fb) {
+  if (!fb || fb->len == 0) return false;
+  if (fb->len > 200 * 1024) {
+    Serial.printf("[STREAM] Frame too large: %u bytes\n", (unsigned int)fb->len);
+    return false;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  http.setTimeout(HTTP_TIMEOUT_MS);
+  if (!http.begin(client, buildUrl(STREAM_PATH))) {
+    return false;
+  }
+
+  http.addHeader("Content-Type", "image/jpeg");
+  http.addHeader("X-API-KEY", API_KEY);
+  int code = http.sendRequest("POST", fb->buf, fb->len);
+  http.end();
+
+  if (code < 200 || code >= 300) {
+    Serial.printf("[STREAM] POST /frame failed: %d\n", code);
+    return false;
+  }
+  return true;
+}
+
+bool pollCaptureCommand() {
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  http.setTimeout(HTTP_TIMEOUT_MS);
+  if (!http.begin(client, buildUrl(COMMAND_PATH))) {
+    return false;
+  }
+  http.addHeader("X-API-KEY", API_KEY);
+
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    http.end();
+    return false;
+  }
+
+  String payload = http.getString();
+  http.end();
+
+  DynamicJsonDocument doc(512);
+  DeserializationError err = deserializeJson(doc, payload);
+  if (err) {
+    return false;
+  }
+
+  JsonVariant command = doc["command"];
+  if (command.isNull()) {
+    return false;
+  }
+
+  const char *type = command["type"] | "";
+  return strcmp(type, "capture") == 0;
+}
+
+bool uploadCaptureMultipart(camera_fb_t *fb) {
+  if (!fb || fb->len == 0) return false;
+
+  static const char *boundary = "----ESP32CamCaptureBoundary";
+  String head = String("--") + boundary +
+                "\r\nContent-Disposition: form-data; name=\"image\"; filename=\"capture.jpg\"\r\n"
+                "Content-Type: image/jpeg\r\n\r\n";
+  String tail = String("\r\n--") + boundary + "--\r\n";
+  const size_t totalLen = head.length() + fb->len + tail.length();
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  if (!client.connect(API_HOST, HTTPS_PORT)) {
+    Serial.println(F("[CAPTURE] TLS connect failed"));
+    return false;
+  }
+
+  client.printf("POST %s HTTP/1.1\r\n", UPLOAD_PATH);
+  client.printf("Host: %s\r\n", API_HOST);
+  client.println("Connection: close");
+  client.printf("X-API-KEY: %s\r\n", API_KEY);
+  client.printf("Content-Type: multipart/form-data; boundary=%s\r\n", boundary);
+  client.printf("Content-Length: %u\r\n\r\n", (unsigned int)totalLen);
+
+  client.write((const uint8_t *)head.c_str(), head.length());
+  client.write(fb->buf, fb->len);
+  client.write((const uint8_t *)tail.c_str(), tail.length());
+
+  String statusLine = client.readStringUntil('\n');
+  client.stop();
+
+  bool ok = statusLine.indexOf(" 200 ") > 0 || statusLine.indexOf(" 201 ") > 0;
+  if (!ok) {
+    Serial.printf("[CAPTURE] Upload failed: %s\n", statusLine.c_str());
+  }
+  return ok;
+}
+
+void runOnDemandCapture() {
+  applyCaptureProfile();
+  delay(120); // allow sensor to settle after profile switch
+
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println(F("[CAPTURE] fb_get failed"));
+    applyStreamProfile();
+    return;
+  }
+
+  bool ok = uploadCaptureMultipart(fb);
+  esp_camera_fb_return(fb);
+
+  applyStreamProfile();
+  Serial.printf("[CAPTURE] Completed (%d)\n", (int)ok);
+}
+
 void setup() {
-  // Tắt bảo vệ Brownout để tránh reset khi dòng điện không ổn định
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
   Serial.begin(115200);
-  Serial.println("\n--- KHOI DONG ESP32-CAM ---");
+  Serial.println("\n--- ESP32-CAM relay streaming mode ---");
 
   pinMode(WIFI_RESET_PIN, INPUT_PULLUP);
-
-  // 1. KẾT NỐI WIFI TRƯỚC (QUAN TRỌNG: để tránh sụt áp lúc khởi động)
   connectWiFi();
 
-  // 2. CHỈ KHỞI TẠO CAM SAU KHI CÓ WIFI
   if (!initCamera()) {
-    Serial.println(F("Camera Fail! Kiem tra lai phan cung."));
-    // Khởi động lại sau 10s nếu hỏng cam
+    Serial.println(F("[CAM] Init failed, restart in 10s"));
     delay(10000);
     ESP.restart();
   }
 
-  lastUploadMs = millis();
+  lastStreamMs = millis();
+  lastCommandPollMs = millis();
 }
 
 void loop() {
-  // Kiểm tra nút Reset WiFi (GPIO0)
-  if (digitalRead(WIFI_RESET_PIN) == LOW) {
-    delay(3000); // Giữ 3s
-    if (digitalRead(WIFI_RESET_PIN) == LOW) {
-      Serial.println(F("[WiFi] Resetting settings..."));
-      wm.resetSettings();
-      ESP.restart();
-    }
-  }
+  checkWiFiResetButton();
 
-  // Tự động kết nối lại nếu mất WiFi
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println(F("[WiFi] Mat ket noi, dang thu lai..."));
-    WiFi.reconnect();
-    delay(5000);
+    unsigned long now = millis();
+    if (now - lastWiFiRetryMs >= WIFI_RETRY_MS) {
+      lastWiFiRetryMs = now;
+      Serial.println(F("[WiFi] Disconnected, reconnecting..."));
+      WiFi.reconnect();
+    }
+    delay(50);
     return;
   }
 
-  // Gửi ảnh theo chu kỳ
-  if (millis() - lastUploadMs >= UPLOAD_INTERVAL_MS) {
-    lastUploadMs = millis();
-    
+  unsigned long now = millis();
+
+  if (now - lastStreamMs >= STREAM_INTERVAL_MS) {
+    lastStreamMs = now;
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb) {
-      bool ok = uploadFrameMultipart(fb);
-      if (!ok) {
-        // Nếu upload lỗi liên tục, có thể giảm framesize hoặc restart
-        Serial.println(F("[API] Upload failed, retrying next cycle..."));
-      }
+      postStreamFrame(fb);
       esp_camera_fb_return(fb);
     } else {
-      Serial.println(F("[CAM] Capture failed"));
+      Serial.println(F("[STREAM] fb_get failed"));
     }
   }
 
-  yield(); // Nhường quyền xử lý cho hệ thống WiFi
+  if (now - lastCommandPollMs >= COMMAND_POLL_MS) {
+    lastCommandPollMs = now;
+    if (pollCaptureCommand()) {
+      runOnDemandCapture();
+    }
+  }
+
+  yield();
 }

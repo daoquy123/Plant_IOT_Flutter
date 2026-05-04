@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -17,6 +18,125 @@ class GardenProvider extends ChangeNotifier {
 
   io.Socket? _socket;
   String? _socketBase;
+  final List<void Function(String imageUrl)> _captureDoneListeners = [];
+
+  void _notifyCaptureListeners(String url) {
+    final u = url.trim();
+    if (u.isEmpty) return;
+    for (final listener in List<void Function(String imageUrl)>.from(_captureDoneListeners)) {
+      listener(u);
+    }
+  }
+
+  /// Snapshot of latest DB row + URL (for detecting new upload after capture).
+  _CameraSnapshot? _parseLatestImageMap(Map<String, dynamic> map) {
+    final rawImage = map['image'];
+    if (rawImage is! Map) return null;
+    final m = Map<String, dynamic>.from(rawImage);
+    final url = m['url']?.toString().trim();
+    if (url == null || url.isEmpty) return null;
+    return _CameraSnapshot(
+      id: m['id'],
+      capturedAt: m['captured_at']?.toString(),
+      url: url,
+    );
+  }
+
+  Future<_CameraSnapshot?> _fetchLatestCameraSnapshot() async {
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) return null;
+    try {
+      final map = await _esp32.fetchLatestImage(serverBase: base, apiKey: apiKey);
+      return _parseLatestImageMap(map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String cacheBustUrl(String url) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+    final sep = u.contains('?') ? '&' : '?';
+    return '$u${sep}cb=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  /// Request capture on server, then wait for a new row in DB (poll) and/or socket `capture-done` / `camera`.
+  Future<String?> waitForNewCameraImageAfterRequest({
+    Duration timeout = const Duration(seconds: 25),
+    Duration pollInterval = const Duration(milliseconds: 500),
+  }) async {
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key';
+      notifyListeners();
+      return null;
+    }
+
+    final before = await _fetchLatestCameraSnapshot();
+    final requestStartedAt = DateTime.now().toUtc();
+    await requestCapture();
+
+    final completer = Completer<String?>();
+    Timer? pollTimer;
+
+    bool isNewSnapshot(_CameraSnapshot snap) {
+      if (before != null) {
+        return snap.id != before.id ||
+            snap.capturedAt != before.capturedAt ||
+            snap.url != before.url;
+      }
+      final cap = snap.capturedAt;
+      if (cap == null || cap.isEmpty) return false;
+      try {
+        final t = DateTime.parse(cap).toUtc();
+        return !t.isBefore(requestStartedAt.subtract(const Duration(seconds: 3)));
+      } catch (_) {
+        return false;
+      }
+    }
+
+    void completeOnce(String? url) {
+      if (completer.isCompleted) return;
+      if (url != null && url.trim().isNotEmpty) {
+        latestImageUrl = url.trim();
+        notifyListeners();
+        completer.complete(cacheBustUrl(url.trim()));
+      }
+    }
+
+    late void Function(String imageUrl) socketListener;
+    socketListener = (imageUrl) {
+      if (completer.isCompleted) return;
+      removeCaptureDoneListener(socketListener);
+      completeOnce(imageUrl);
+    };
+    addCaptureDoneListener(socketListener);
+
+    Future<void> pollOnce() async {
+      if (completer.isCompleted) return;
+      final snap = await _fetchLatestCameraSnapshot();
+      if (snap == null) return;
+      if (isNewSnapshot(snap)) {
+        removeCaptureDoneListener(socketListener);
+        completeOnce(snap.url);
+      }
+    }
+
+    Future.microtask(pollOnce);
+    pollTimer = Timer.periodic(pollInterval, (_) {
+      Future.microtask(pollOnce);
+    });
+
+    try {
+      final result = await completer.future.timeout(timeout, onTimeout: () => null);
+      return result;
+    } finally {
+      pollTimer?.cancel();
+      removeCaptureDoneListener(socketListener);
+    }
+  }
 
   void attachSettings(SettingsProvider settings) {
     _settings = settings;
@@ -158,6 +278,21 @@ class GardenProvider extends ChangeNotifier {
       if (url != null && url.trim().isNotEmpty) {
         latestImageUrl = url.trim();
         notifyListeners();
+        _notifyCaptureListeners(latestImageUrl!);
+      }
+    });
+    socket.on('capture-done', (data) {
+      final map = _coerceMap(data);
+      String? imageUrl;
+      if (map != null) {
+        imageUrl = map['imageUrl']?.toString();
+        imageUrl ??= map['url']?.toString();
+        imageUrl ??= map['image_url']?.toString();
+      }
+      if (imageUrl != null && imageUrl.trim().isNotEmpty) {
+        latestImageUrl = imageUrl.trim();
+        notifyListeners();
+        _notifyCaptureListeners(latestImageUrl!);
       }
     });
     socket.on('image', (data) {
@@ -322,6 +457,56 @@ class GardenProvider extends ChangeNotifier {
     } catch (_) {
       // Ignore errors during initial fetch
     }
+  }
+
+  void addCaptureDoneListener(void Function(String imageUrl) listener) {
+    _captureDoneListeners.add(listener);
+  }
+
+  void removeCaptureDoneListener(void Function(String imageUrl) listener) {
+    _captureDoneListeners.remove(listener);
+  }
+
+  Future<void> requestCapture() async {
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key';
+      notifyListeners();
+      return;
+    }
+    lastError = null;
+    notifyListeners();
+    await _esp32.requestCapture(serverBase: base, apiKey: apiKey);
+  }
+
+  Future<String?> fetchLatestImage() async {
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key';
+      notifyListeners();
+      return null;
+    }
+
+    final imageMap = await _esp32.fetchLatestImage(
+      serverBase: base,
+      apiKey: apiKey,
+    );
+    final rawImage = imageMap['image'];
+    String? imageUrl;
+    if (rawImage is Map) {
+      imageUrl = rawImage['url']?.toString();
+    } else if (rawImage is String) {
+      imageUrl = rawImage;
+    }
+    imageUrl ??= imageMap['url']?.toString();
+    if (imageUrl != null && imageUrl.trim().isNotEmpty) {
+      latestImageUrl = imageUrl.trim();
+      notifyListeners();
+      return latestImageUrl;
+    }
+    return null;
   }
 
   void setAiAnalysisFromServer(String line) {
@@ -514,4 +699,16 @@ class GardenProvider extends ChangeNotifier {
     _esp32.close();
     super.dispose();
   }
+}
+
+class _CameraSnapshot {
+  _CameraSnapshot({
+    required this.id,
+    required this.capturedAt,
+    required this.url,
+  });
+
+  final dynamic id;
+  final String? capturedAt;
+  final String url;
 }

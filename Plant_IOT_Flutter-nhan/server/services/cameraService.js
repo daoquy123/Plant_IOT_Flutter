@@ -4,6 +4,8 @@ const { getDb } = require('../config/database');
 const { config } = require('../config/env');
 
 const uploadBasePath = path.resolve(__dirname, '..', config.UPLOADS_DIR);
+let latestFrame = null;
+let currentCommand = null;
 
 function saveImage(file, { capturedAt } = {}, callback) {
   const db = getDb();
@@ -38,6 +40,24 @@ function saveImage(file, { capturedAt } = {}, callback) {
 
     callback(null, result);
   });
+}
+
+function setLatestFrame(buffer) {
+  latestFrame = buffer;
+}
+
+function getLatestFrame() {
+  return latestFrame;
+}
+
+function setCommand(cmd) {
+  currentCommand = cmd;
+}
+
+function getCommand() {
+  const command = currentCommand;
+  currentCommand = null;
+  return command;
 }
 
 function getLatestImage(callback) {
@@ -163,6 +183,10 @@ module.exports = {
   saveImage,
   getLatestImage,
   listImages,
+  setLatestFrame,
+  getLatestFrame,
+  setCommand,
+  getCommand,
   cleanupOldImages,
   getUploadsDirectorySize,
   getDirectorySize,

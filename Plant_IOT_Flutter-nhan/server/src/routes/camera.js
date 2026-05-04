@@ -2,10 +2,19 @@ const path = require('path');
 const express = require('express');
 const multer = require('multer');
 const { config } = require('../../config/env');
-const { saveImage, getLatestImage, listImages } = require('../../services/cameraService');
+const {
+  saveImage,
+  getLatestImage,
+  listImages,
+  setLatestFrame,
+  getLatestFrame,
+  setCommand,
+  getCommand,
+} = require('../../services/cameraService');
 
 const router = express.Router();
 const uploadDirectory = path.resolve(__dirname, '../../', config.UPLOADS_DIR);
+const streamRawParser = express.raw({ type: 'image/jpeg', limit: '2mb' });
 
 const storage = multer.diskStorage({
   destination: uploadDirectory,
@@ -44,11 +53,56 @@ router.post('/upload', upload.single('image'), (req, res, next) => {
 
     const url = buildPublicUrl(req, req.file.filename);
     req.app.locals.io.emit('camera', { ...image, url });
+    req.app.locals.io.emit('capture-done', {
+      imageUrl: url,
+      imageId: image.id,
+      capturedAt: image.captured_at,
+      timestamp: Date.now(),
+    });
 
     res.json({
       success: true,
       image: { ...image, url },
     });
+  });
+});
+
+router.post('/frame', streamRawParser, (req, res) => {
+  const frameBuffer = req.body;
+  if (!Buffer.isBuffer(frameBuffer) || frameBuffer.length === 0) {
+    return res.status(400).json({ success: false, message: 'Missing JPEG frame payload.' });
+  }
+
+  setLatestFrame(frameBuffer);
+  req.app.locals.io.emit('frame-update', { size: frameBuffer.length, ts: Date.now() });
+  return res.json({ success: true });
+});
+
+router.get('/frame', (req, res) => {
+  const frameBuffer = getLatestFrame();
+  if (!frameBuffer) {
+    return res.status(404).json({ success: false, message: 'No frame available.' });
+  }
+
+  res.setHeader('Content-Type', 'image/jpeg');
+  return res.send(frameBuffer);
+});
+
+router.post('/request-capture', (req, res) => {
+  console.log('>>> before setCommand');
+
+  setCommand({ type: 'capture', requestedAt: new Date().toISOString() });
+
+  console.log('>>> after setCommand');
+
+  return res.json({ success: true });
+});
+
+router.get('/command', (req, res) => {
+  const command = getCommand();
+  return res.json({
+    success: true,
+    command: command || null,
   });
 });
 
