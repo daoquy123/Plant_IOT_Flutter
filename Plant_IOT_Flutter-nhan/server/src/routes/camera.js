@@ -8,6 +8,7 @@ const {
   listImages,
   setLatestFrame,
   getLatestFrame,
+  createCaptureRequest,
 } = require('../../services/cameraService');
 
 const router = express.Router();
@@ -44,12 +45,18 @@ router.post('/upload', upload.single('image'), (req, res, next) => {
     return res.status(400).json({ success: false, message: 'Missing image file.' });
   }
 
-  saveImage(req.file, { capturedAt: req.body.captured_at }, (err, image) => {
+  const url = buildPublicUrl(req, req.file.filename);
+  saveImage(req.file, {
+    capturedAt: req.body.captured_at,
+    publicUrl: url,
+    deviceId: req.body.device_id || req.body.deviceId || 'esp32_cam_main',
+    requestId: req.body.request_id || req.body.requestId,
+    uploadSource: req.body.upload_source || 'esp32-cam',
+  }, (err, image) => {
     if (err) {
       return next(err);
     }
 
-    const url = buildPublicUrl(req, req.file.filename);
     req.app.locals.io.emit('camera', { ...image, url });
     req.app.locals.io.emit('capture-done', {
       imageUrl: url,
@@ -101,6 +108,16 @@ router.post('/request-capture', (req, res) => {
   }
 
   const published = req.app.locals.publishCameraCommand(command);
+  createCaptureRequest({
+    requestId: command.request_id,
+    deviceId: req.body?.device_id || 'esp32_cam_main',
+    status: published ? 'published' : 'mqtt_unavailable',
+    requestedBy: req.body?.requested_by || 'app',
+  }, (err) => {
+    if (err) {
+      return console.error('Failed to record camera capture request:', err.message);
+    }
+  });
   if (!published) {
     return res.status(503).json({
       success: false,
@@ -137,7 +154,7 @@ router.get('/latest', (req, res, next) => {
       success: true,
       image: {
         ...image,
-        url: buildPublicUrl(req, image.filename),
+        url: image.public_url || buildPublicUrl(req, image.filename),
       },
     });
   });
@@ -156,7 +173,7 @@ router.get('/list', (req, res, next) => {
       success: true,
       images: images.map((image) => ({
         ...image,
-        url: buildPublicUrl(req, image.filename),
+        url: image.public_url || buildPublicUrl(req, image.filename),
       })),
     });
   });

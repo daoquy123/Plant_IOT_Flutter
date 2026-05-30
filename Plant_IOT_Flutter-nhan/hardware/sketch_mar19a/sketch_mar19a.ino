@@ -312,6 +312,7 @@ void setup() {
   connectWiFi();
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setCallback(onMqttMessage);
+  mqttClient.setBufferSize(1024);
 
 applyPumpOutput();
 applyShadeOutput();

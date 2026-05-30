@@ -9,8 +9,10 @@ function insertReading(payload, callback) {
       soil_moisture,
       rain,
       device_id,
+      raw_payload,
+      source,
       recorded_at
-    ) VALUES (?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const values = [
@@ -19,6 +21,8 @@ function insertReading(payload, callback) {
     payload.soil_moisture ?? null,
     payload.rain ?? null,
     payload.device_id ?? null,
+    payload.raw_payload ? JSON.stringify(payload.raw_payload) : null,
+    payload.source ?? null,
     payload.recorded_at ?? new Date().toISOString()
   ];
 

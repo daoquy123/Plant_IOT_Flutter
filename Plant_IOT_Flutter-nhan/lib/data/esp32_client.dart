@@ -116,6 +116,19 @@ class Esp32Client {
     return _decodeMap(response);
   }
 
+  Future<Map<String, dynamic>> fetchAnalytics({
+    required String serverBase,
+    required String apiKey,
+    required String range,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/sensors/analytics')
+        .replace(queryParameters: {'range': range});
+    final response = await _client
+        .get(uri, headers: _buildHeaders(apiKey))
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
   void close() => _client.close();
 }
 

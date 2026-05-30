@@ -48,7 +48,14 @@ class SmartGardenApp extends StatelessWidget {
             return c;
           },
         ),
-        ChangeNotifierProvider(create: (_) => AnalyticsProvider()),
+        ChangeNotifierProxyProvider<SettingsProvider, AnalyticsProvider>(
+          create: (_) => AnalyticsProvider(),
+          update: (_, settings, previous) {
+            final a = previous ?? AnalyticsProvider();
+            a.attachSettings(settings);
+            return a;
+          },
+        ),
       ],
       child: MaterialApp(
         title: 'Smart Garden',

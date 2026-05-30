@@ -61,9 +61,10 @@ class AnalyticsScreen extends StatelessWidget {
                     );
                   }
                   final data = snap.data!;
+                  final labels = data.buckets.map((b) => b.label).toList();
                   return ListView(
                     children: [
-                      const SectionLabel('Nhiệt độ & ẩm đất'),
+                      const SectionLabel('Nhiệt độ & độ ẩm'),
                       AppCard(
                         padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
                         child: Column(
@@ -73,7 +74,8 @@ class AnalyticsScreen extends StatelessWidget {
                               height: 210,
                               child: _LineDualChart(
                                 temp: data.temperature,
-                                moisture: data.soilMoisture,
+                                humidity: data.humidity,
+                                labels: labels,
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -83,7 +85,7 @@ class AnalyticsScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             _LegendLine(
-                              label: 'Ẩm đất (%)',
+                              label: 'Độ ẩm (%)',
                               color: scheme.onSurface.withValues(alpha: 0.38),
                             ),
                           ],
@@ -95,7 +97,23 @@ class AnalyticsScreen extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
                         child: SizedBox(
                           height: 210,
-                          child: _PumpBarChart(counts: data.pumpCounts),
+                          child: _PumpBarChart(
+                            counts: data.pumpCounts,
+                            labels: labels,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      SectionLabel(
+                        data.range.isHourly
+                            ? 'Thông số theo giờ'
+                            : 'Trung bình theo ngày',
+                      ),
+                      AppCard(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                        child: _BucketSummaryTable(
+                          buckets: data.buckets,
+                          hourly: data.range.isHourly,
                         ),
                       ),
                     ],
@@ -120,11 +138,7 @@ class _LegendLine extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          width: 18,
-          height: 2,
-          color: color,
-        ),
+        Container(width: 18, height: 2, color: color),
         const SizedBox(width: 8),
         Text(
           label,
@@ -144,17 +158,22 @@ class _LegendLine extends StatelessWidget {
 class _LineDualChart extends StatelessWidget {
   const _LineDualChart({
     required this.temp,
-    required this.moisture,
+    required this.humidity,
+    required this.labels,
   });
 
   final List<FlSpot> temp;
-  final List<FlSpot> moisture;
+  final List<FlSpot> humidity;
+  final List<String> labels;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return LineChart(
       LineChartData(
+        minX: 0,
+        maxX: labels.isEmpty ? 0 : (labels.length - 1).toDouble(),
+        minY: 0,
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
@@ -185,22 +204,26 @@ class _LineDualChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 22,
-              interval: 1,
-              getTitlesWidget: (v, m) => Text(
-                v.toInt().toString(),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: scheme.onSurface.withValues(alpha: 0.4),
-                ),
-              ),
+              interval: _labelInterval(labels.length),
+              getTitlesWidget: (v, m) {
+                final index = v.round();
+                if (index < 0 || index >= labels.length) {
+                  return const SizedBox.shrink();
+                }
+                return Text(
+                  labels[index],
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: scheme.onSurface.withValues(alpha: 0.4),
+                  ),
+                );
+              },
             ),
           ),
         ),
         borderData: FlBorderData(
           show: true,
-          border: Border.all(
-            color: scheme.outline.withValues(alpha: 0.32),
-          ),
+          border: Border.all(color: scheme.outline.withValues(alpha: 0.32)),
         ),
         lineBarsData: [
           LineChartBarData(
@@ -212,7 +235,7 @@ class _LineDualChart extends StatelessWidget {
             dotData: const FlDotData(show: false),
           ),
           LineChartBarData(
-            spots: moisture,
+            spots: humidity,
             isCurved: true,
             curveSmoothness: 0.22,
             barWidth: 2.6,
@@ -226,15 +249,19 @@ class _LineDualChart extends StatelessWidget {
 }
 
 class _PumpBarChart extends StatelessWidget {
-  const _PumpBarChart({required this.counts});
+  const _PumpBarChart({required this.counts, required this.labels});
 
   final List<int> counts;
+  final List<String> labels;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final maxCount =
+        counts.isEmpty ? 1 : counts.reduce((a, b) => a > b ? a : b);
     return BarChart(
       BarChartData(
+        maxY: (maxCount + 1).toDouble(),
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
@@ -265,21 +292,26 @@ class _PumpBarChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 22,
-              getTitlesWidget: (v, m) => Text(
-                v.toInt().toString(),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: scheme.onSurface.withValues(alpha: 0.4),
-                ),
-              ),
+              interval: _labelInterval(labels.length),
+              getTitlesWidget: (v, m) {
+                final index = v.round();
+                if (index < 0 || index >= labels.length) {
+                  return const SizedBox.shrink();
+                }
+                return Text(
+                  labels[index],
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: scheme.onSurface.withValues(alpha: 0.4),
+                  ),
+                );
+              },
             ),
           ),
         ),
         borderData: FlBorderData(
           show: true,
-          border: Border.all(
-            color: scheme.outline.withValues(alpha: 0.45),
-          ),
+          border: Border.all(color: scheme.outline.withValues(alpha: 0.45)),
         ),
         barGroups: List.generate(
           counts.length,
@@ -288,11 +320,10 @@ class _PumpBarChart extends StatelessWidget {
             barRods: [
               BarChartRodData(
                 toY: counts[i].toDouble(),
-                width: 11,
+                width: counts.length > 20 ? 6 : 11,
                 color: scheme.primary.withValues(alpha: 0.88),
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(6),
-                ),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(6)),
               ),
             ],
           ),
@@ -300,4 +331,70 @@ class _PumpBarChart extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BucketSummaryTable extends StatelessWidget {
+  const _BucketSummaryTable({required this.buckets, required this.hourly});
+
+  final List<AnalyticsBucket> buckets;
+  final bool hourly;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final headerStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w700,
+          color: scheme.onSurface.withValues(alpha: 0.62),
+        );
+    final cellStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: scheme.onSurface.withValues(alpha: 0.74),
+        );
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        headingRowHeight: 34,
+        dataRowMinHeight: 34,
+        dataRowMaxHeight: 38,
+        columnSpacing: 18,
+        horizontalMargin: 0,
+        columns: [
+          DataColumn(label: Text(hourly ? 'Giờ' : 'Ngày', style: headerStyle)),
+          DataColumn(label: Text('Nhiệt độ', style: headerStyle)),
+          DataColumn(label: Text('Độ ẩm', style: headerStyle)),
+          DataColumn(label: Text('Số lần bơm', style: headerStyle)),
+        ],
+        rows: buckets
+            .map(
+              (bucket) => DataRow(
+                cells: [
+                  DataCell(Text(bucket.label, style: cellStyle)),
+                  DataCell(Text(
+                    _formatValue(bucket.avgTemperature, '°C'),
+                    style: cellStyle,
+                  )),
+                  DataCell(Text(
+                    _formatValue(bucket.avgHumidity, '%'),
+                    style: cellStyle,
+                  )),
+                  DataCell(Text(bucket.pumpCount.toString(), style: cellStyle)),
+                ],
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  String _formatValue(double? value, String unit) {
+    if (value == null) return '-';
+    return '${value.toStringAsFixed(1)} $unit';
+  }
+}
+
+double _labelInterval(int length) {
+  if (length > 20) return 5;
+  if (length > 10) return 3;
+  return 1;
 }

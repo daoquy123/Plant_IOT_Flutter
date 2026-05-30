@@ -34,6 +34,8 @@ function runMigrations() {
       soil_moisture INTEGER,
       rain INTEGER,
       device_id TEXT,
+      raw_payload TEXT,
+      source TEXT,
       recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -43,8 +45,10 @@ function runMigrations() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       relay_id INTEGER NOT NULL,
       relay_name TEXT,
+      relay_type TEXT,
       state INTEGER DEFAULT 0,
       triggered_by TEXT DEFAULT 'app',
+      device_id TEXT,
       changed_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -54,11 +58,56 @@ function runMigrations() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       filename TEXT NOT NULL,
       filepath TEXT NOT NULL,
+      public_url TEXT,
+      device_id TEXT,
+      request_id TEXT,
+      upload_source TEXT,
       file_size INTEGER,
+      uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE INDEX IF NOT EXISTS idx_camera_images_captured_at ON camera_images(captured_at);
+
+    CREATE TABLE IF NOT EXISTS camera_capture_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id TEXT NOT NULL UNIQUE,
+      device_id TEXT,
+      status TEXT NOT NULL,
+      requested_by TEXT DEFAULT 'app',
+      requested_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_camera_capture_requests_requested_at ON camera_capture_requests(requested_at);
+
+    CREATE TABLE IF NOT EXISTS pump_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      relay_state_on_id INTEGER,
+      relay_state_off_id INTEGER,
+      relay_id INTEGER DEFAULT 2,
+      relay_name TEXT DEFAULT 'Pump',
+      triggered_by TEXT DEFAULT 'app',
+      device_id TEXT,
+      started_at DATETIME NOT NULL,
+      ended_at DATETIME,
+      duration_seconds INTEGER,
+      FOREIGN KEY(relay_state_on_id) REFERENCES relay_states(id),
+      FOREIGN KEY(relay_state_off_id) REFERENCES relay_states(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pump_runs_started_at ON pump_runs(started_at);
+
+    CREATE TABLE IF NOT EXISTS app_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      action TEXT,
+      payload_json TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_app_events_created_at ON app_events(created_at);
 
     CREATE TABLE IF NOT EXISTS chat_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,8 +143,67 @@ function runMigrations() {
       console.error('Migration error:', err.message);
     } else {
       console.log('Database migrations completed');
+      runSchemaUpgrades(database);
     }
   });
+}
+
+function addColumnIfMissing(database, table, column, definition) {
+  database.all(`PRAGMA table_info(${table})`, (err, rows) => {
+    if (err) {
+      console.error(`Error reading schema for ${table}:`, err.message);
+      return;
+    }
+    if (rows.some((row) => row.name === column)) return;
+    database.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`, (alterErr) => {
+      if (alterErr) {
+        console.error(`Error adding column ${table}.${column}:`, alterErr.message);
+      }
+    });
+  });
+}
+
+function ensureColumnAndIndex(database, table, column, definition, indexSql) {
+  database.all(`PRAGMA table_info(${table})`, (err, rows) => {
+    if (err) {
+      console.error(`Error reading schema for ${table}:`, err.message);
+      return;
+    }
+    const createIndex = () => database.run(indexSql, (indexErr) => {
+      if (indexErr) {
+        console.error(`Error creating index for ${table}.${column}:`, indexErr.message);
+      }
+    });
+    if (rows.some((row) => row.name === column)) {
+      createIndex();
+      return;
+    }
+    database.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`, (alterErr) => {
+      if (alterErr) {
+        console.error(`Error adding column ${table}.${column}:`, alterErr.message);
+        return;
+      }
+      createIndex();
+    });
+  });
+}
+
+function runSchemaUpgrades(database) {
+  addColumnIfMissing(database, 'sensor_readings', 'raw_payload', 'TEXT');
+  addColumnIfMissing(database, 'sensor_readings', 'source', 'TEXT');
+  addColumnIfMissing(database, 'relay_states', 'relay_type', 'TEXT');
+  addColumnIfMissing(database, 'relay_states', 'device_id', 'TEXT');
+  addColumnIfMissing(database, 'camera_images', 'public_url', 'TEXT');
+  addColumnIfMissing(database, 'camera_images', 'device_id', 'TEXT');
+  ensureColumnAndIndex(
+    database,
+    'camera_images',
+    'request_id',
+    'TEXT',
+    'CREATE INDEX IF NOT EXISTS idx_camera_images_request_id ON camera_images(request_id)'
+  );
+  addColumnIfMissing(database, 'camera_images', 'upload_source', 'TEXT');
+  addColumnIfMissing(database, 'camera_images', 'uploaded_at', 'DATETIME');
 }
 
 function cleanOldData() {

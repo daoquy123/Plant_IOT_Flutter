@@ -140,10 +140,16 @@ const mqttClient = mqtt.connect(config.MQTT_URL, mqttOptions);
 app.locals.mqtt = mqttClient;
 app.locals.publishRelayState = (relayStatus) => {
   if (!mqttClient.connected) return;
+  const compactRelayStatus = Array.isArray(relayStatus)
+    ? relayStatus.map((row) => ({
+        relay_id: row.relay_id,
+        state: parseBoolean(row.state) ?? Number(row.state) === 1,
+      }))
+    : relayStatus;
   mqttClient.publish(
     MQTT_TOPICS.relayState,
     JSON.stringify({
-      relay_status: relayStatus,
+      relay_status: compactRelayStatus,
       timestamp: Date.now(),
     }),
     { retain: true, qos: 1 },
@@ -227,6 +233,8 @@ mqttClient.on('message', (topic, messageBuffer) => {
       soil_moisture: toNumber(payload.soil_moisture) ?? toNumber(payload.moisture),
       rain: toNumber(payload.rain),
       device_id: payload.device_id,
+      raw_payload: payload,
+      source: 'mqtt',
       recorded_at: payload.recorded_at,
     };
     insertReading(sensorPayload, (err, sensor) => {
@@ -253,6 +261,7 @@ mqttClient.on('message', (topic, messageBuffer) => {
         relay_name: payload.relay_name,
         state,
         triggered_by: payload.triggered_by || 'mqtt',
+        device_id: payload.device_id,
       },
       (err, relayStatus) => {
         if (err) {

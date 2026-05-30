@@ -1,5 +1,10 @@
 const express = require('express');
-const { createRelayState, getRelayStatus } = require('../../services/relayService');
+const {
+  createRelayState,
+  getRelayStatus,
+  getRelayHistory,
+  getPumpRuns,
+} = require('../../services/relayService');
 
 const router = express.Router();
 
@@ -67,6 +72,7 @@ router.post('/', (req, res, next) => {
     relay_name: relayName,
     state,
     triggered_by: triggeredBy,
+    device_id: body.device_id,
   }, (err, relayStatus) => {
     if (err) {
       return next(err);
@@ -108,6 +114,28 @@ router.get('/status', (req, res, next) => {
       return next(err);
     }
     res.json({ success: true, relay_status: relayStatus });
+  });
+});
+
+router.get('/pump-runs', (req, res, next) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  getPumpRuns({ limit, offset }, (err, pump_runs) => {
+    if (err) {
+      return next(err);
+    }
+    res.json({ success: true, pump_runs });
+  });
+});
+
+router.get('/history', (req, res, next) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  getRelayHistory({ limit, offset }, (err, relay_history) => {
+    if (err) {
+      return next(err);
+    }
+    res.json({ success: true, relay_history });
   });
 });
 

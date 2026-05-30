@@ -160,11 +160,19 @@ void checkWiFiResetButton() {
   }
 }
 
-bool uploadCaptureMultipart(camera_fb_t *fb) {
+bool uploadCaptureMultipart(camera_fb_t *fb, const char *requestId) {
   if (!fb || fb->len == 0) return false;
 
   static const char *boundary = "----ESP32CamCaptureBoundary";
   String head = String("--") + boundary +
+                "\r\nContent-Disposition: form-data; name=\"device_id\"\r\n\r\n" +
+                MQTT_CLIENT_ID +
+                "\r\n--" + boundary +
+                "\r\nContent-Disposition: form-data; name=\"request_id\"\r\n\r\n" +
+                (requestId ? requestId : "") +
+                "\r\n--" + boundary +
+                "\r\nContent-Disposition: form-data; name=\"upload_source\"\r\n\r\nesp32-cam"
+                "\r\n--" + boundary +
                 "\r\nContent-Disposition: form-data; name=\"image\"; filename=\"capture.jpg\"\r\n"
                 "Content-Type: image/jpeg\r\n\r\n";
   String tail = String("\r\n--") + boundary + "--\r\n";
@@ -277,7 +285,7 @@ bool runOnDemandCapture(const char *requestId) {
     return false;
   }
 
-  bool ok = uploadCaptureMultipart(fb);
+  bool ok = uploadCaptureMultipart(fb, requestId);
   esp_camera_fb_return(fb);
 
   applyStreamProfile();

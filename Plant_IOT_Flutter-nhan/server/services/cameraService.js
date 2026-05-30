@@ -6,22 +6,33 @@ const { config } = require('../config/env');
 const uploadBasePath = path.resolve(__dirname, '..', config.UPLOADS_DIR);
 let latestFrame = null;
 
-function saveImage(file, { capturedAt } = {}, callback) {
+function saveImage(file, { capturedAt, publicUrl, deviceId, requestId, uploadSource } = {}, callback) {
   const db = getDb();
+  const now = new Date().toISOString();
   const sql = `
     INSERT INTO camera_images (
       filename,
       filepath,
+      public_url,
+      device_id,
+      request_id,
+      upload_source,
       file_size,
+      uploaded_at,
       captured_at
-    ) VALUES (?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const values = [
     file.filename,
     file.path,
+    publicUrl || null,
+    deviceId || null,
+    requestId || null,
+    uploadSource || 'esp32-cam',
     file.size,
-    capturedAt || new Date().toISOString()
+    now,
+    capturedAt || now
   ];
 
   db.run(sql, values, function(err) {
@@ -33,9 +44,26 @@ function saveImage(file, { capturedAt } = {}, callback) {
       id: this.lastID,
       filename: file.filename,
       filepath: file.path,
+      public_url: publicUrl || null,
+      device_id: deviceId || null,
+      request_id: requestId || null,
+      upload_source: uploadSource || 'esp32-cam',
       file_size: file.size,
-      captured_at: capturedAt || new Date().toISOString()
+      uploaded_at: now,
+      captured_at: capturedAt || now
     };
+
+    if (requestId) {
+      db.run(
+        'UPDATE camera_capture_requests SET status = ? WHERE request_id = ?',
+        ['uploaded', requestId],
+        (updateErr) => {
+          if (updateErr) {
+            console.error('Failed updating capture request status:', updateErr.message);
+          }
+        }
+      );
+    }
 
     callback(null, result);
   });
@@ -51,7 +79,7 @@ function getLatestFrame() {
 
 function getLatestImage(callback) {
   const db = getDb();
-  const sql = 'SELECT id, filename, filepath, file_size, captured_at FROM camera_images ORDER BY captured_at DESC LIMIT 1';
+  const sql = 'SELECT id, filename, filepath, public_url, device_id, request_id, upload_source, file_size, uploaded_at, captured_at FROM camera_images ORDER BY captured_at DESC LIMIT 1';
 
   db.get(sql, (err, row) => {
     if (err) {
@@ -63,7 +91,7 @@ function getLatestImage(callback) {
 
 function listImages({ limit = 50, offset = 0 }, callback) {
   const db = getDb();
-  const sql = 'SELECT id, filename, filepath, file_size, captured_at FROM camera_images ORDER BY captured_at DESC LIMIT ? OFFSET ?';
+  const sql = 'SELECT id, filename, filepath, public_url, device_id, request_id, upload_source, file_size, uploaded_at, captured_at FROM camera_images ORDER BY captured_at DESC LIMIT ? OFFSET ?';
 
   db.all(sql, [limit, offset], (err, rows) => {
     if (err) {
@@ -71,6 +99,31 @@ function listImages({ limit = 50, offset = 0 }, callback) {
     }
     callback(null, rows);
   });
+}
+
+function createCaptureRequest({ requestId, deviceId, status, requestedBy }, callback) {
+  const db = getDb();
+  const sql = `
+    INSERT INTO camera_capture_requests (
+      request_id,
+      device_id,
+      status,
+      requested_by,
+      requested_at
+    ) VALUES (?, ?, ?, ?, ?)
+  `;
+
+  db.run(
+    sql,
+    [
+      requestId,
+      deviceId || null,
+      status || 'published',
+      requestedBy || 'app',
+      new Date().toISOString(),
+    ],
+    callback
+  );
 }
 
 function cleanupOldImages(days, callback) {
@@ -174,6 +227,7 @@ module.exports = {
   listImages,
   setLatestFrame,
   getLatestFrame,
+  createCaptureRequest,
   cleanupOldImages,
   getUploadsDirectorySize,
   getDirectorySize,
