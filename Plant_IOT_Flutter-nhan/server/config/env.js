@@ -23,7 +23,7 @@ const config = {
   SENSOR_RETENTION_DAYS: Number(process.env.SENSOR_RETENTION_DAYS || 30),
   IMAGE_RETENTION_DAYS: Number(process.env.IMAGE_RETENTION_DAYS || 7),
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
-  /** Comma-separated origins, e.g. https://five-small-snowflake.site. Empty = allow any origin (reflect). */
+  /** Comma-separated origins, e.g. https://103.116.38.192. Empty = allow any origin (reflect). */
   CORS_ORIGINS: corsRaw,
   /** Express trust proxy (1 = first proxy hop, true = trust all). Required behind Nginx for correct HTTPS URLs. */
   TRUST_PROXY: trustProxyRaw === 'true' ? true : Number(trustProxyRaw) || 1,

@@ -37,6 +37,8 @@ const MQTT_TOPICS = {
   sensor: 'garden/sensor',
   relaySet: 'garden/relay/set',
   relayState: 'garden/relay/state',
+  cameraCommand: 'garden/camera/command',
+  cameraStatus: 'garden/camera/status',
 };
 
 function toNumber(value) {
@@ -91,6 +93,7 @@ io.on('connection', (socket) => {
 app.locals.io = io;
 app.locals.mqtt = null;
 app.locals.publishRelayState = () => {};
+app.locals.publishCameraCommand = () => false;
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors({ origin: corsOrigin, credentials: true }));
@@ -151,15 +154,32 @@ app.locals.publishRelayState = (relayStatus) => {
     }
   );
 };
+app.locals.publishCameraCommand = (command) => {
+  if (!mqttClient.connected) return false;
+  mqttClient.publish(
+    MQTT_TOPICS.cameraCommand,
+    JSON.stringify({
+      ...command,
+      timestamp: Date.now(),
+    }),
+    { qos: 1 },
+    (err) => {
+      if (err) {
+        console.error('[MQTT] Failed publishing camera command:', err.message);
+      }
+    }
+  );
+  return true;
+};
 
 mqttClient.on('connect', () => {
   console.log(`[MQTT] Connected to broker: ${config.MQTT_URL}`);
-  mqttClient.subscribe([MQTT_TOPICS.sensor, MQTT_TOPICS.relaySet], { qos: 1 }, (err) => {
+  mqttClient.subscribe([MQTT_TOPICS.sensor, MQTT_TOPICS.relaySet, MQTT_TOPICS.cameraStatus], { qos: 1 }, (err) => {
     if (err) {
       console.error('[MQTT] Subscribe failed:', err.message);
       return;
     }
-    console.log(`[MQTT] Subscribed: ${MQTT_TOPICS.sensor}, ${MQTT_TOPICS.relaySet}`);
+    console.log(`[MQTT] Subscribed: ${MQTT_TOPICS.sensor}, ${MQTT_TOPICS.relaySet}, ${MQTT_TOPICS.cameraStatus}`);
   });
   mqttClient.publish(
     'garden/server/status',
@@ -243,6 +263,10 @@ mqttClient.on('message', (topic, messageBuffer) => {
         app.locals.publishRelayState(relayStatus);
       }
     );
+  }
+
+  if (topic === MQTT_TOPICS.cameraStatus) {
+    io.emit('camera-status', payload);
   }
 });
 

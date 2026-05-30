@@ -538,20 +538,24 @@ class GardenProvider extends ChangeNotifier {
         applyEspPayload(payload);
       }
 
-      final imageMap = await _esp32.fetchLatestImage(
-        serverBase: base,
-        apiKey: apiKey,
-      );
-      final rawImage = imageMap['image'];
-      String? imageUrl;
-      if (rawImage is Map) {
-        imageUrl = rawImage['url']?.toString();
-      } else if (rawImage is String) {
-        imageUrl = rawImage;
-      }
-      imageUrl ??= imageMap['url']?.toString();
-      if (imageUrl != null && imageUrl.isNotEmpty) {
-        latestImageUrl = imageUrl;
+      try {
+        final imageMap = await _esp32.fetchLatestImage(
+          serverBase: base,
+          apiKey: apiKey,
+        );
+        final rawImage = imageMap['image'];
+        String? imageUrl;
+        if (rawImage is Map) {
+          imageUrl = rawImage['url']?.toString();
+        } else if (rawImage is String) {
+          imageUrl = rawImage;
+        }
+        imageUrl ??= imageMap['url']?.toString();
+        if (imageUrl != null && imageUrl.isNotEmpty) {
+          latestImageUrl = imageUrl;
+        }
+      } on Esp32HttpException catch (e) {
+        if (e.statusCode != 404) rethrow;
       }
 
       try {

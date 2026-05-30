@@ -1,88 +1,28 @@
-const express = require('express');
 const rateLimit = require('express-rate-limit');
 
-const app = express();
-
-app.use(express.json());
-
-// =====================================================
-// TRUST PROXY (nếu dùng VPS + Nginx / Cloudflare)
-// =====================================================
-app.set('trust proxy', 1);
-
-// =====================================================
-// IOT LIMITER (thoáng hơn)
-// =====================================================
-const iotUploadLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 phút
-  max: 1000,
-  standardHeaders: true,
-  legacyHeaders: false,
-
-  keyGenerator: (req) => {
-    return (
-      req.header('X-API-KEY') +
-      ':' +
-      (req.body?.device_id || 'unknown')
-    );
-  },
-});
-
-// =====================================================
-// API LIMITER (cho user/web)
-// =====================================================
+/**
+ * Global API limiter for human-facing traffic.
+ * Realtime IoT camera/sensor/control endpoints are skipped to avoid throttling ESP32 loops.
+ */
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 phút
+  windowMs: 15 * 60 * 1000, // 15 minutes
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
-});
+  skip: (req) => {
+    const path = req.path || '';
+    const method = req.method || '';
 
-// =====================================================
-// APPLY IOT LIMITER (chỉ cho IoT routes)
-// =====================================================
-app.use('/api/sensors', iotUploadLimiter);
-app.use('/api/relay', iotUploadLimiter);
-app.use('/api/camera/upload', iotUploadLimiter);
+    // Camera streaming/control from ESP32-CAM (high-frequency, must not be 429-limited).
+    if (path === '/api/camera/frame' && method === 'POST') return true;
+    if (path === '/api/camera/upload' && method === 'POST') return true;
 
-// =====================================================
-// APPLY API LIMITER (LOẠI TRỪ IoT)
-// =====================================================
-app.use('/api', (req, res, next) => {
-  // loại trừ các route IoT
-  if (
-    req.path.startsWith('/sensors') ||
-    req.path.startsWith('/relay') ||
-    req.path.startsWith('/camera/upload')
-  ) {
-    return next();
-  }
+    // Sensor/relay IoT endpoints can be frequent depending on firmware strategy.
+    if (path.startsWith('/api/sensors')) return true;
+    if (path.startsWith('/api/relay')) return true;
 
-  // còn lại áp limiter cho user
-  apiLimiter(req, res, next);
-});
-
-// =====================================================
-// ROUTES DEMO
-// =====================================================
-
-// IoT
-app.post('/api/sensors', (req, res) => {
-  res.json({ message: 'Sensor data received' });
-});
-
-app.get('/api/relay/status', (req, res) => {
-  res.json({
-    relay_status: [
-      { relay_id: 1, state: true },
-      { relay_id: 2, state: false },
-    ],
-  });
-});
-
-// User API
-app.get('/api/users', (req, res) => {
-  res.json({ message: 'User API OK' });
+    return false;
+  },
 });
 
 module.exports = apiLimiter;

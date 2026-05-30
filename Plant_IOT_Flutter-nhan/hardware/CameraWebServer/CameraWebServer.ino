@@ -1,14 +1,14 @@
 /*
- * ESP32-CAM (AI-Thinker) - server-relay streaming + on-demand capture.
- * Stream path: POST /api/camera/frame (raw JPEG)
- * Capture path: poll /api/camera/command then POST /api/camera/upload (multipart)
+ * ESP32-CAM (AI-Thinker) - event-driven capture.
+ * Event-driven capture:
+ *   - subscribe MQTT garden/camera/command
+ *   - upload only when a capture command arrives
  */
 
 #include "esp_camera.h"
 #include <WiFi.h>
 #include <WiFiManager.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
+#include <PubSubClient.h>
 #include <ArduinoJson.h>
 
 #include "soc/soc.h"
@@ -16,21 +16,25 @@
 
 // ===================== USER CONFIG =====================
 static const char *API_KEY = "a90cfc28468dc7b73eda44573bebb3a6d39981c92f449a9fc3cda4e56e113ce0";
-static const char *API_HOST = "five-small-snowflake.site";
-static const uint16_t HTTPS_PORT = 443;
+static const char *API_HOST = "103.116.38.192";
+static const uint16_t HTTP_PORT = 80;
 
-static const char *STREAM_PATH = "/api/camera/frame";
-static const char *COMMAND_PATH = "/api/camera/command";
 static const char *UPLOAD_PATH = "/api/camera/upload";
+static const char *MQTT_HOST = "103.116.38.192";
+static const uint16_t MQTT_PORT = 1883;
+static const char *MQTT_CLIENT_ID = "esp32_cam_main";
+static const char *MQTT_TOPIC_COMMAND = "garden/camera/command";
+static const char *MQTT_TOPIC_STATUS = "garden/camera/status";
 
-static const int WIFI_RESET_PIN = 0;
+// IMPORTANT: GPIO0 is used by XCLK on AI-Thinker ESP32-CAM, so do not reuse it as runtime button input.
+// Set to -1 to disable WiFi reset button logic for camera firmware.
+static const int WIFI_RESET_PIN = -1;
 static const unsigned long WIFI_RESET_HOLD_MS = 3000;
-static const unsigned long STREAM_INTERVAL_MS = 400;   // 2-5 FPS target
-static const unsigned long COMMAND_POLL_MS = 2500;     // poll capture command every 2-3s
 static const unsigned long WIFI_RETRY_MS = 5000;
+static const unsigned long MQTT_RETRY_MS = 3000;
 static const uint32_t HTTP_TIMEOUT_MS = 15000;
 
-// Stream profile (lightweight for RAM/CPU/bandwidth)
+// Idle profile (lightweight for RAM while waiting for MQTT commands)
 static const framesize_t STREAM_SIZE = FRAMESIZE_QVGA;
 static const int STREAM_QUALITY = 14;
 
@@ -39,10 +43,13 @@ static const framesize_t CAPTURE_SIZE = FRAMESIZE_UXGA;
 static const int CAPTURE_QUALITY = 9;
 
 WiFiManager wm;
-unsigned long lastStreamMs = 0;
-unsigned long lastCommandPollMs = 0;
 unsigned long lastWiFiRetryMs = 0;
+unsigned long lastMqttRetryMs = 0;
 unsigned long resetPressStartMs = 0;
+bool captureRequested = false;
+char pendingRequestId[64] = "";
+WiFiClient mqttWifiClient;
+PubSubClient mqttClient(mqttWifiClient);
 
 // ----- AI-Thinker ESP32-CAM pins -----
 #define PWDN_GPIO_NUM     32
@@ -63,7 +70,7 @@ unsigned long resetPressStartMs = 0;
 #define PCLK_GPIO_NUM     22
 
 String buildUrl(const char *path) {
-  return String("https://") + API_HOST + path;
+  return String("http://") + API_HOST + path;
 }
 
 void applyStreamProfile() {
@@ -137,6 +144,8 @@ void connectWiFi() {
 }
 
 void checkWiFiResetButton() {
+  if (WIFI_RESET_PIN < 0) return;
+
   if (digitalRead(WIFI_RESET_PIN) == LOW) {
     if (resetPressStartMs == 0) {
       resetPressStartMs = millis();
@@ -151,69 +160,6 @@ void checkWiFiResetButton() {
   }
 }
 
-bool postStreamFrame(camera_fb_t *fb) {
-  if (!fb || fb->len == 0) return false;
-  if (fb->len > 200 * 1024) {
-    Serial.printf("[STREAM] Frame too large: %u bytes\n", (unsigned int)fb->len);
-    return false;
-  }
-
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
-  if (!http.begin(client, buildUrl(STREAM_PATH))) {
-    return false;
-  }
-
-  http.addHeader("Content-Type", "image/jpeg");
-  http.addHeader("X-API-KEY", API_KEY);
-  int code = http.sendRequest("POST", fb->buf, fb->len);
-  http.end();
-
-  if (code < 200 || code >= 300) {
-    Serial.printf("[STREAM] POST /frame failed: %d\n", code);
-    return false;
-  }
-  return true;
-}
-
-bool pollCaptureCommand() {
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  HTTPClient http;
-  http.setTimeout(HTTP_TIMEOUT_MS);
-  if (!http.begin(client, buildUrl(COMMAND_PATH))) {
-    return false;
-  }
-  http.addHeader("X-API-KEY", API_KEY);
-
-  int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    http.end();
-    return false;
-  }
-
-  String payload = http.getString();
-  http.end();
-
-  DynamicJsonDocument doc(512);
-  DeserializationError err = deserializeJson(doc, payload);
-  if (err) {
-    return false;
-  }
-
-  JsonVariant command = doc["command"];
-  if (command.isNull()) {
-    return false;
-  }
-
-  const char *type = command["type"] | "";
-  return strcmp(type, "capture") == 0;
-}
-
 bool uploadCaptureMultipart(camera_fb_t *fb) {
   if (!fb || fb->len == 0) return false;
 
@@ -224,10 +170,9 @@ bool uploadCaptureMultipart(camera_fb_t *fb) {
   String tail = String("\r\n--") + boundary + "--\r\n";
   const size_t totalLen = head.length() + fb->len + tail.length();
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  if (!client.connect(API_HOST, HTTPS_PORT)) {
-    Serial.println(F("[CAPTURE] TLS connect failed"));
+  WiFiClient client;
+  if (!client.connect(API_HOST, HTTP_PORT)) {
+    Serial.println(F("[CAPTURE] HTTP connect failed"));
     return false;
   }
 
@@ -252,7 +197,76 @@ bool uploadCaptureMultipart(camera_fb_t *fb) {
   return ok;
 }
 
-void runOnDemandCapture() {
+void publishCameraStatus(const char *status, const char *requestId = "") {
+  if (!mqttClient.connected()) return;
+
+  DynamicJsonDocument doc(256);
+  doc["device_id"] = MQTT_CLIENT_ID;
+  doc["status"] = status;
+  if (requestId && requestId[0] != '\0') {
+    doc["request_id"] = requestId;
+  }
+  doc["timestamp"] = millis();
+
+  String json;
+  serializeJson(doc, json);
+  mqttClient.publish(MQTT_TOPIC_STATUS, json.c_str(), false);
+}
+
+void onMqttMessage(char *topic, byte *payload, unsigned int length) {
+  if (String(topic) != MQTT_TOPIC_COMMAND) return;
+
+  DynamicJsonDocument doc(512);
+  DeserializationError err = deserializeJson(doc, payload, length);
+  if (err) {
+    Serial.printf("[MQTT] Command JSON parse error: %s\n", err.c_str());
+    return;
+  }
+
+  const char *type = doc["type"] | "";
+  if (strcmp(type, "capture") != 0) return;
+
+  const char *requestId = doc["request_id"] | "";
+  strlcpy(pendingRequestId, requestId, sizeof(pendingRequestId));
+  captureRequested = true;
+  Serial.printf("[MQTT] Capture requested: %s\n", pendingRequestId);
+  publishCameraStatus("capture_accepted", pendingRequestId);
+}
+
+void ensureMqttConnected() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (mqttClient.connected()) return;
+
+  unsigned long now = millis();
+  if (now - lastMqttRetryMs < MQTT_RETRY_MS) return;
+  lastMqttRetryMs = now;
+
+  Serial.println(F("[MQTT] Connecting..."));
+  bool ok = mqttClient.connect(
+    MQTT_CLIENT_ID,
+    MQTT_CLIENT_ID,
+    API_KEY,
+    MQTT_TOPIC_STATUS,
+    1,
+    true,
+    "{\"device_id\":\"esp32_cam_main\",\"status\":\"offline\"}"
+  );
+
+  if (!ok) {
+    Serial.printf("[MQTT] Connect failed, rc=%d\n", mqttClient.state());
+    return;
+  }
+
+  Serial.println(F("[MQTT] Connected"));
+  mqttClient.subscribe(MQTT_TOPIC_COMMAND, 1);
+  mqttClient.publish(
+    MQTT_TOPIC_STATUS,
+    "{\"device_id\":\"esp32_cam_main\",\"status\":\"online\"}",
+    true
+  );
+}
+
+bool runOnDemandCapture(const char *requestId) {
   applyCaptureProfile();
   delay(120); // allow sensor to settle after profile switch
 
@@ -260,7 +274,7 @@ void runOnDemandCapture() {
   if (!fb) {
     Serial.println(F("[CAPTURE] fb_get failed"));
     applyStreamProfile();
-    return;
+    return false;
   }
 
   bool ok = uploadCaptureMultipart(fb);
@@ -268,15 +282,19 @@ void runOnDemandCapture() {
 
   applyStreamProfile();
   Serial.printf("[CAPTURE] Completed (%d)\n", (int)ok);
+  publishCameraStatus(ok ? "capture_uploaded" : "capture_upload_failed", requestId);
+  return ok;
 }
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
   Serial.begin(115200);
-  Serial.println("\n--- ESP32-CAM relay streaming mode ---");
+  Serial.println("\n--- ESP32-CAM MQTT capture mode ---");
 
-  pinMode(WIFI_RESET_PIN, INPUT_PULLUP);
+  if (WIFI_RESET_PIN >= 0) {
+    pinMode(WIFI_RESET_PIN, INPUT_PULLUP);
+  }
   connectWiFi();
 
   if (!initCamera()) {
@@ -285,8 +303,8 @@ void setup() {
     ESP.restart();
   }
 
-  lastStreamMs = millis();
-  lastCommandPollMs = millis();
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setCallback(onMqttMessage);
 }
 
 void loop() {
@@ -303,24 +321,16 @@ void loop() {
     return;
   }
 
-  unsigned long now = millis();
+  ensureMqttConnected();
+  mqttClient.loop();
 
-  if (now - lastStreamMs >= STREAM_INTERVAL_MS) {
-    lastStreamMs = now;
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (fb) {
-      postStreamFrame(fb);
-      esp_camera_fb_return(fb);
-    } else {
-      Serial.println(F("[STREAM] fb_get failed"));
-    }
-  }
-
-  if (now - lastCommandPollMs >= COMMAND_POLL_MS) {
-    lastCommandPollMs = now;
-    if (pollCaptureCommand()) {
-      runOnDemandCapture();
-    }
+  if (captureRequested) {
+    captureRequested = false;
+    char requestId[64];
+    strlcpy(requestId, pendingRequestId, sizeof(requestId));
+    pendingRequestId[0] = '\0';
+    publishCameraStatus("capture_started", requestId);
+    runOnDemandCapture(requestId);
   }
 
   yield();

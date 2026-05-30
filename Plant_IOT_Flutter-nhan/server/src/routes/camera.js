@@ -8,8 +8,6 @@ const {
   listImages,
   setLatestFrame,
   getLatestFrame,
-  setCommand,
-  getCommand,
 } = require('../../services/cameraService');
 
 const router = express.Router();
@@ -89,20 +87,35 @@ router.get('/frame', (req, res) => {
 });
 
 router.post('/request-capture', (req, res) => {
-  console.log('>>> before setCommand');
+  const command = {
+    type: 'capture',
+    request_id: `capture-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    requested_at: new Date().toISOString(),
+  };
 
-  setCommand({ type: 'capture', requestedAt: new Date().toISOString() });
+  if (typeof req.app.locals.publishCameraCommand !== 'function') {
+    return res.status(503).json({
+      success: false,
+      message: 'MQTT camera command publisher is not available.',
+    });
+  }
 
-  console.log('>>> after setCommand');
+  const published = req.app.locals.publishCameraCommand(command);
+  if (!published) {
+    return res.status(503).json({
+      success: false,
+      message: 'MQTT broker is not connected. Camera command was not sent.',
+    });
+  }
 
-  return res.json({ success: true });
+  req.app.locals.io.emit('capture-requested', command);
+  return res.json({ success: true, command });
 });
 
 router.get('/command', (req, res) => {
-  const command = getCommand();
-  return res.json({
-    success: true,
-    command: command || null,
+  return res.status(410).json({
+    success: false,
+    message: 'Camera command polling is disabled. ESP32-CAM now receives commands via MQTT.',
   });
 });
 
@@ -113,7 +126,11 @@ router.get('/latest', (req, res, next) => {
     }
 
     if (!image) {
-      return res.status(404).json({ success: false, message: 'No camera images found.' });
+      return res.json({
+        success: true,
+        image: null,
+        message: 'No camera images found.',
+      });
     }
 
     res.json({

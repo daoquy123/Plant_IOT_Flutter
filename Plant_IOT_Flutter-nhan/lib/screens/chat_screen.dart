@@ -142,7 +142,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 segments: const [
                   ButtonSegment<String>(
                     value: 'vgg16',
-                    label: Text('VGG16'),
+                    label: Text('VGG16  '),
                   ),
                   ButtonSegment<String>(
                     value: 'resnet',

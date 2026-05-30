@@ -13,6 +13,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
+#include <math.h>
 #include "DHT.h"
 #include <Stepper.h>
 
@@ -22,17 +23,21 @@ static const char *DEVICE_ID = "esp32_garden_main";
 static const int WIFI_RESET_PIN = 0;
 
 // MQTT broker config (use your server IP/domain)
-static const char *MQTT_HOST = "five-small-snowflake.site";
+static const char *MQTT_HOST = "103.116.38.192";
 static const uint16_t MQTT_PORT = 1883;
 static const char *MQTT_TOPIC_SENSOR = "garden/sensor";
 static const char *MQTT_TOPIC_RELAY_STATE = "garden/relay/state";
 
-static const unsigned long SENSOR_INTERVAL_MS = 60000;
+static const unsigned long SENSOR_SAMPLE_INTERVAL_MS = 2000;
 static const unsigned long WIFI_RESET_HOLD_MS = 3000;
 static const unsigned long WIFI_RETRY_INTERVAL_MS = 5000;
 static const unsigned long MQTT_RETRY_INTERVAL_MS = 3000;
 static const unsigned long STEPPER_STEP_INTERVAL_MS = 3;
 static const int SHADE_TRAVEL_STEPS = 2048 * 9;
+static const float TEMP_DELTA = 0.5f;
+static const float HUMIDITY_DELTA = 2.0f;
+static const int SOIL_DELTA = 50;
+static const int RAIN_DELTA = 50;
 
 // ===== HARDWARE (giữ như project cũ) =====
 #define DHTPIN 4
@@ -59,6 +64,11 @@ unsigned long lastStepperStepMs = 0;
 
 bool wantShadeOpen = false;
 bool wantPumpOn = false;
+bool hasPublishedSensor = false;
+float lastPublishedTemp = NAN;
+float lastPublishedHumidity = NAN;
+int lastPublishedSoil = -1;
+int lastPublishedRain = -1;
 
 // Non-blocking stepper state
 volatile long stepperRemaining = 0;
@@ -238,11 +248,28 @@ void ensureMqttConnected() {
   );
 }
 
-void publishSensorData() {
+bool floatChanged(float previous, float current, float delta) {
+  if (isnan(previous) && isnan(current)) return false;
+  if (isnan(previous) != isnan(current)) return true;
+  return fabs(previous - current) >= delta;
+}
+
+bool sensorChanged(float t, float h, int soil, int rain) {
+  if (!hasPublishedSensor) return true;
+  if (floatChanged(lastPublishedTemp, t, TEMP_DELTA)) return true;
+  if (floatChanged(lastPublishedHumidity, h, HUMIDITY_DELTA)) return true;
+  if (abs(lastPublishedSoil - soil) >= SOIL_DELTA) return true;
+  if (abs(lastPublishedRain - rain) >= RAIN_DELTA) return true;
+  return false;
+}
+
+void publishSensorDataIfChanged() {
   float h = dht.readHumidity();
   float t = dht.readTemperature();
   int soil = analogRead(SOIL_PIN);
   int rain = analogRead(RAIN_PIN);
+
+  if (!sensorChanged(t, h, soil, rain)) return;
 
   DynamicJsonDocument doc(512);
   if (isnan(t)) doc["temperature"] = JsonVariant();
@@ -260,6 +287,11 @@ void publishSensorData() {
   if (!ok) {
     Serial.println(F("[MQTT] Failed to publish sensor payload"));
   } else {
+    hasPublishedSensor = true;
+    lastPublishedTemp = t;
+    lastPublishedHumidity = h;
+    lastPublishedSoil = soil;
+    lastPublishedRain = rain;
     Serial.printf("[MQTT] Published sensor: %s\n", json.c_str());
   }
 }
@@ -296,9 +328,9 @@ void loop() {
 
   unsigned long now = millis();
 
-  if (now - lastSensorMs >= SENSOR_INTERVAL_MS) {
+  if (now - lastSensorMs >= SENSOR_SAMPLE_INTERVAL_MS) {
     lastSensorMs = now;
-    publishSensorData();
+    publishSensorDataIfChanged();
   }
 
   yield();
