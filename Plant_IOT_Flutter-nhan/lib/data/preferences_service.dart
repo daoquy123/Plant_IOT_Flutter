@@ -35,7 +35,7 @@ class PreferencesService {
       PreferenceKeys.apiKey: prefs.getString(PreferenceKeys.apiKey) ?? '',
       PreferenceKeys.cameraUrl: prefs.getString(PreferenceKeys.cameraUrl) ?? '',
       PreferenceKeys.aiServerUrl:
-          prefs.getString(PreferenceKeys.aiServerUrl) ?? '',
+          prefs.getString(PreferenceKeys.aiServerUrl) ?? kDefaultAiServerUrl,
       PreferenceKeys.autoWater:
           prefs.getBool(PreferenceKeys.autoWater) ?? false,
     };

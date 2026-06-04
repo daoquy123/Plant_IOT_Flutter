@@ -2,7 +2,10 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../config/server_defaults.dart';
 import '../providers/analytics_provider.dart';
+import '../providers/settings_provider.dart';
+import '../utils/network_error_message.dart';
 import '../widgets/app_card.dart';
 import '../widgets/section_label.dart';
 
@@ -12,7 +15,6 @@ class AnalyticsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final analytics = context.watch<AnalyticsProvider>();
-    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Phân tích')),
@@ -44,83 +46,7 @@ class AnalyticsScreen extends StatelessWidget {
               },
             ),
             const SizedBox(height: 20),
-            Expanded(
-              child: FutureBuilder<ChartSeries>(
-                key: ValueKey(analytics.range),
-                future: analytics.loadSeries(),
-                builder: (context, snap) {
-                  if (snap.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snap.hasError) {
-                    return Center(
-                      child: Text(
-                        snap.error.toString(),
-                        style: TextStyle(color: scheme.error, fontSize: 13),
-                      ),
-                    );
-                  }
-                  final data = snap.data!;
-                  final labels = data.buckets.map((b) => b.label).toList();
-                  return ListView(
-                    children: [
-                      const SectionLabel('Nhiệt độ & độ ẩm'),
-                      AppCard(
-                        padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            SizedBox(
-                              height: 210,
-                              child: _LineDualChart(
-                                temp: data.temperature,
-                                humidity: data.humidity,
-                                labels: labels,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            _LegendLine(
-                              label: 'Nhiệt độ (°C)',
-                              color: scheme.primary,
-                            ),
-                            const SizedBox(height: 6),
-                            _LegendLine(
-                              label: 'Độ ẩm (%)',
-                              color: scheme.onSurface.withValues(alpha: 0.38),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 22),
-                      const SectionLabel('Lần chạy máy bơm'),
-                      AppCard(
-                        padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
-                        child: SizedBox(
-                          height: 210,
-                          child: _PumpBarChart(
-                            counts: data.pumpCounts,
-                            labels: labels,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 22),
-                      SectionLabel(
-                        data.range.isHourly
-                            ? 'Thông số theo giờ'
-                            : 'Trung bình theo ngày',
-                      ),
-                      AppCard(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                        child: _BucketSummaryTable(
-                          buckets: data.buckets,
-                          hourly: data.range.isHourly,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
+            const Expanded(child: _AnalyticsBody()),
           ],
         ),
       ),
@@ -128,56 +54,328 @@ class AnalyticsScreen extends StatelessWidget {
   }
 }
 
-class _LegendLine extends StatelessWidget {
-  const _LegendLine({required this.label, required this.color});
+class _AnalyticsBody extends StatefulWidget {
+  const _AnalyticsBody();
 
-  final String label;
-  final Color color;
+  @override
+  State<_AnalyticsBody> createState() => _AnalyticsBodyState();
+}
+
+class _AnalyticsBodyState extends State<_AnalyticsBody> {
+  int _retryToken = 0;
+
+  void _retry() => setState(() => _retryToken += 1);
+
+  String _serverUrl(SettingsProvider settings) {
+    final saved = settings.serverUrl.trim();
+    return saved.isNotEmpty ? saved : kDefaultIotServerUrl;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(width: 18, height: 2, color: color),
-        const SizedBox(width: 8),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.55),
+    final analytics = context.watch<AnalyticsProvider>();
+    final settings = context.watch<SettingsProvider>();
+    final scheme = Theme.of(context).colorScheme;
+    final serverUrl = _serverUrl(settings);
+
+    return FutureBuilder<ChartSeries>(
+      key: ValueKey('${analytics.range}-$_retryToken'),
+      future: analytics.loadSeries(),
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          return _AnalyticsErrorState(
+            message: friendlyNetworkError(
+              snap.error!,
+              serverUrl: serverUrl,
+            ),
+            serverUrl: serverUrl,
+            onRetry: _retry,
+          );
+        }
+        final data = snap.data!;
+        if (!data.hasAnyData) {
+          return _AnalyticsEmptyState(
+            hourly: data.range.isHourly,
+            onRetry: _retry,
+          );
+        }
+        return RefreshIndicator(
+          onRefresh: () async {
+            setState(() => _retryToken += 1);
+            await analytics.loadSeries();
+          },
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+            const SectionLabel('Nhiệt độ (°C)'),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+              child: SizedBox(
+                height: 200,
+                child: _MetricLineChart(
+                  spots: data.temperature,
+                  labels: data.sensorLabels,
+                  color: scheme.primary,
+                  unit: '°C',
+                  fallbackMin: 20,
+                  fallbackMax: 40,
+                ),
               ),
-        ),
-      ],
+            ),
+            const SizedBox(height: 18),
+            const SectionLabel('Độ ẩm (%)'),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+              child: SizedBox(
+                height: 200,
+                child: _MetricLineChart(
+                  spots: data.humidity,
+                  labels: data.sensorLabels,
+                  color: scheme.tertiary,
+                  unit: '%',
+                  fallbackMin: 60,
+                  fallbackMax: 100,
+                ),
+              ),
+            ),
+            const SizedBox(height: 22),
+            const SectionLabel('Lần chạy máy bơm'),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+              child: SizedBox(
+                height: 210,
+                child: data.pumpCounts.isEmpty
+                    ? const _ChartPlaceholder(
+                        message: 'Chưa có lần bơm trong khoảng thời gian này',
+                      )
+                    : _PumpBarChart(
+                        counts: data.pumpCounts,
+                        labels: data.pumpLabels,
+                      ),
+              ),
+            ),
+            const SizedBox(height: 22),
+            SectionLabel(
+              data.range.isHourly
+                  ? 'Thông số theo giờ'
+                  : 'Trung bình theo ngày',
+            ),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              child: _BucketSummaryTable(
+                buckets: data.buckets,
+                hourly: data.range.isHourly,
+              ),
+            ),
+          ],
+          ),
+        );
+      },
     );
   }
 }
 
-class _LineDualChart extends StatelessWidget {
-  const _LineDualChart({
-    required this.temp,
-    required this.humidity,
-    required this.labels,
+class _AnalyticsEmptyState extends StatelessWidget {
+  const _AnalyticsEmptyState({
+    required this.hourly,
+    required this.onRetry,
   });
 
-  final List<FlSpot> temp;
-  final List<FlSpot> humidity;
-  final List<String> labels;
+  final bool hourly;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final rangeLabel = hourly ? '24 giờ qua' : 'khoảng thời gian đã chọn';
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: AppCard(
+          padding: const EdgeInsets.fromLTRB(22, 24, 22, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.insights_outlined,
+                size: 36,
+                color: scheme.onSurface.withValues(alpha: 0.35),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Chưa có dữ liệu hoạt động',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Chỉ hiển thị khi có cảm biến gửi mẫu hoặc máy bơm chạy trong $rangeLabel.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.72),
+                      height: 1.45,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                label: const Text('Tải lại'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChartPlaceholder extends StatelessWidget {
+  const _ChartPlaceholder({required this.message, super.key});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.45),
+            ),
+      ),
+    );
+  }
+}
+
+class _AnalyticsErrorState extends StatelessWidget {
+  const _AnalyticsErrorState({
+    required this.message,
+    required this.serverUrl,
+    required this.onRetry,
+  });
+
+  final String message;
+  final String serverUrl;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: AppCard(
+          padding: const EdgeInsets.fromLTRB(22, 24, 22, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.cloud_off_outlined,
+                size: 36,
+                color: scheme.error.withValues(alpha: 0.85),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Không tải được biểu đồ',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.72),
+                      height: 1.45,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Server hiện tại: $serverUrl',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface.withValues(alpha: 0.5),
+                      fontWeight: FontWeight.w600,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                label: const Text('Thử lại'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MetricLineChart extends StatelessWidget {
+  const _MetricLineChart({
+    required this.spots,
+    required this.labels,
+    required this.color,
+    required this.unit,
+    required this.fallbackMin,
+    required this.fallbackMax,
+  });
+
+  final List<FlSpot> spots;
+  final List<String> labels;
+  final Color color;
+  final String unit;
+  final double fallbackMin;
+  final double fallbackMax;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (spots.isEmpty) {
+      return Center(
+        child: Text(
+          'Chưa có dữ liệu',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurface.withValues(alpha: 0.45),
+              ),
+        ),
+      );
+    }
+
+    final values = spots.map((s) => s.y);
+    final dataMin = values.reduce((a, b) => a < b ? a : b);
+    final dataMax = values.reduce((a, b) => a > b ? a : b);
+    final span = (dataMax - dataMin).abs();
+    final pad = span < 0.5 ? 2.0 : (span * 0.12).clamp(1.0, 8.0);
+    final minY = (dataMin - pad).clamp(fallbackMin, fallbackMax - 1);
+    final maxY = (dataMax + pad).clamp(fallbackMin + 1, fallbackMax);
+    final yInterval = ((maxY - minY) / 4).clamp(0.5, 50.0);
+
     return LineChart(
       LineChartData(
         minX: 0,
         maxX: labels.isEmpty ? 0 : (labels.length - 1).toDouble(),
-        minY: 0,
+        minY: minY,
+        maxY: maxY,
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          horizontalInterval: 10,
+          horizontalInterval: yInterval,
           getDrawingHorizontalLine: (v) => FlLine(
             color: scheme.outline.withValues(alpha: 0.35),
             strokeWidth: 1,
@@ -189,10 +387,10 @@ class _LineDualChart extends StatelessWidget {
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 32,
-              interval: 20,
+              reservedSize: 36,
+              interval: yInterval,
               getTitlesWidget: (v, m) => Text(
-                v.toInt().toString(),
+                v.toStringAsFixed(span < 2 ? 1 : 0),
                 style: TextStyle(
                   fontSize: 10,
                   color: scheme.onSurface.withValues(alpha: 0.4),
@@ -203,21 +401,10 @@ class _LineDualChart extends StatelessWidget {
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 22,
+              reservedSize: labels.length > 10 ? 30 : 22,
               interval: _labelInterval(labels.length),
-              getTitlesWidget: (v, m) {
-                final index = v.round();
-                if (index < 0 || index >= labels.length) {
-                  return const SizedBox.shrink();
-                }
-                return Text(
-                  labels[index],
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: scheme.onSurface.withValues(alpha: 0.4),
-                  ),
-                );
-              },
+              getTitlesWidget: (v, m) =>
+                  _bottomLabel(context, labels, v.round()),
             ),
           ),
         ),
@@ -227,25 +414,60 @@ class _LineDualChart extends StatelessWidget {
         ),
         lineBarsData: [
           LineChartBarData(
-            spots: temp,
+            spots: spots,
             isCurved: true,
             curveSmoothness: 0.22,
-            barWidth: 2.6,
-            color: scheme.primary,
-            dotData: const FlDotData(show: false),
-          ),
-          LineChartBarData(
-            spots: humidity,
-            isCurved: true,
-            curveSmoothness: 0.22,
-            barWidth: 2.6,
-            color: scheme.onSurface.withValues(alpha: 0.38),
-            dotData: const FlDotData(show: false),
+            barWidth: 2.8,
+            color: color,
+            dotData: FlDotData(
+              show: labels.length <= 14,
+              getDotPainter: (spot, percent, bar, index) => FlDotCirclePainter(
+                radius: 3,
+                color: color,
+                strokeWidth: 1.5,
+                strokeColor: scheme.surface,
+              ),
+            ),
+            belowBarData: BarAreaData(
+              show: true,
+              color: color.withValues(alpha: 0.08),
+            ),
           ),
         ],
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipItems: (touched) => touched.map((bar) {
+              final y = bar.y;
+              return LineTooltipItem(
+                '${y.toStringAsFixed(1)} $unit',
+                TextStyle(
+                  color: scheme.onPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }
+}
+
+Widget _bottomLabel(BuildContext context, List<String> labels, int index) {
+  if (index < 0 || index >= labels.length) {
+    return const SizedBox.shrink();
+  }
+  final scheme = Theme.of(context).colorScheme;
+  final text = Text(
+    labels[index],
+    style: TextStyle(
+      fontSize: 10,
+      color: scheme.onSurface.withValues(alpha: 0.4),
+    ),
+  );
+  if (labels.length <= 10) return text;
+  return Transform.rotate(angle: -0.45, child: text);
 }
 
 class _PumpBarChart extends StatelessWidget {
@@ -293,19 +515,8 @@ class _PumpBarChart extends StatelessWidget {
               showTitles: true,
               reservedSize: 22,
               interval: _labelInterval(labels.length),
-              getTitlesWidget: (v, m) {
-                final index = v.round();
-                if (index < 0 || index >= labels.length) {
-                  return const SizedBox.shrink();
-                }
-                return Text(
-                  labels[index],
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: scheme.onSurface.withValues(alpha: 0.4),
-                  ),
-                );
-              },
+              getTitlesWidget: (v, m) =>
+                  _bottomLabel(context, labels, v.round()),
             ),
           ),
         ),

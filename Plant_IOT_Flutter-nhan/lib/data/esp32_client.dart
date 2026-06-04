@@ -129,6 +129,53 @@ class Esp32Client {
     return _decodeMap(response);
   }
 
+  Future<Map<String, dynamic>> fetchActiveGrowingCycle({
+    required String serverBase,
+    required String apiKey,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/growing-cycles/active');
+    final response = await _client
+        .get(uri, headers: _buildHeaders(apiKey))
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
+  Future<Map<String, dynamic>> startGrowingCycle({
+    required String serverBase,
+    required String apiKey,
+    required String startedAtIsoDate,
+    String? note,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/growing-cycles/start');
+    final response = await _client
+        .post(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode({
+            'started_at': startedAtIsoDate,
+            if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+          }),
+        )
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
+  Future<Map<String, dynamic>> endGrowingCycle({
+    required String serverBase,
+    required String apiKey,
+    required int cycleId,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/growing-cycles/$cycleId/end');
+    final response = await _client
+        .post(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode(<String, dynamic>{}),
+        )
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
   void close() => _client.close();
 }
 
@@ -138,5 +185,19 @@ class Esp32HttpException implements Exception {
   final String body;
 
   @override
-  String toString() => 'Esp32HttpException($statusCode): $body';
+  String toString() {
+    final pathMatch =
+        RegExp(r'Cannot (GET|POST|PUT|DELETE) ([^\s<]+)').firstMatch(body);
+    if (pathMatch != null) {
+      return 'API chưa có trên server: ${pathMatch.group(2)}. '
+          'Cần cập nhật backend (pm2 restart sau khi deploy).';
+    }
+    if (statusCode == 404) {
+      return 'Không tìm thấy API trên server (404). Cần cập nhật backend.';
+    }
+    if (body.length > 120) {
+      return 'Lỗi server ($statusCode).';
+    }
+    return 'Lỗi server ($statusCode): $body';
+  }
 }

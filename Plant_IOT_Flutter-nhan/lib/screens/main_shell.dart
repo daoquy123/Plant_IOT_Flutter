@@ -26,72 +26,43 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
     return Scaffold(
       body: IndexedStack(
         index: _index,
         children: _pages,
       ),
-      bottomNavigationBar: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          height: 68,
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            final base = Theme.of(context).textTheme.labelSmall;
-            final selected = states.contains(WidgetState.selected);
-            return base?.copyWith(
-                  fontSize: 11,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  letterSpacing: 0.1,
-                ) ??
-                TextStyle(
-                  fontSize: 11,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                );
-          }),
-          iconTheme: WidgetStateProperty.resolveWith((states) {
-            final selected = states.contains(WidgetState.selected);
-            return IconThemeData(
-              size: 22,
-              color: selected ? scheme.primary : scheme.onSurface.withValues(
-                    alpha: 0.55,
-                  ),
-            );
-          }),
-          indicatorColor: scheme.primary.withValues(alpha: 0.14),
-        ),
-        child: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: (i) => setState(() => _index = i),
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.grid_view_outlined),
-              selectedIcon: Icon(Icons.grid_view_rounded),
-              label: 'Tổng quan',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.tune_outlined),
-              selectedIcon: Icon(Icons.tune_rounded),
-              label: 'Điều khiển',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.smart_toy_outlined),
-              selectedIcon: Icon(Icons.smart_toy_rounded),
-              label: 'AI',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.show_chart_outlined),
-              selectedIcon: Icon(Icons.show_chart_rounded),
-              label: 'Biểu đồ',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings_rounded),
-              label: 'Cài đặt',
-            ),
-          ],
-        ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: (i) => setState(() => _index = i),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        animationDuration: Duration.zero,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.grid_view_outlined, size: 20),
+            selectedIcon: Icon(Icons.grid_view_rounded, size: 20),
+            label: 'Tổng quan',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.tune_outlined, size: 20),
+            selectedIcon: Icon(Icons.tune_rounded, size: 20),
+            label: 'Điều khiển',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.smart_toy_outlined, size: 20),
+            selectedIcon: Icon(Icons.smart_toy_rounded, size: 20),
+            label: 'AI',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.show_chart_outlined, size: 20),
+            selectedIcon: Icon(Icons.show_chart_rounded, size: 20),
+            label: 'Biểu đồ',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined, size: 20),
+            selectedIcon: Icon(Icons.settings_rounded, size: 20),
+            label: 'Cài đặt',
+          ),
+        ],
       ),
     );
   }

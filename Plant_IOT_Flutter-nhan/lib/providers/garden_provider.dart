@@ -6,6 +6,8 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../config/server_defaults.dart';
 import '../data/esp32_client.dart';
+import '../utils/network_error_message.dart';
+import '../models/growing_cycle.dart';
 import '../models/sensor_display.dart';
 import 'settings_provider.dart';
 
@@ -159,6 +161,9 @@ class GardenProvider extends ChangeNotifier {
   bool shadeOn = false;
   bool pumpOn = true;
   int waterTodayCount = 0;
+
+  GrowingCycle? activeGrowingCycle;
+  bool cycleBusy = false;
 
   bool iotBusy = false;
   String? lastError;
@@ -376,9 +381,51 @@ class GardenProvider extends ChangeNotifier {
     return percent;
   }
 
+  /// Nhãn ngày VN (dd/MM) — khớp API analytics 7d.
+  static String vnTodayLabel() {
+    final vn = DateTime.now().toUtc().add(const Duration(hours: 7));
+    final d = vn.day.toString().padLeft(2, '0');
+    final m = vn.month.toString().padLeft(2, '0');
+    return '$d/$m';
+  }
+
+  /// Đồng bộ số lần bơm hôm nay từ `pump_runs` trên server (giống tab Biểu đồ).
+  Future<void> refreshWaterTodayCount() async {
+    final base = _settings?.serverUrl.trim() ?? '';
+    final apiKey = _settings?.apiKey.trim() ?? '';
+    if (base.isEmpty || apiKey.isEmpty) return;
+
+    try {
+      final map = await _esp32.fetchAnalytics(
+        serverBase: base,
+        apiKey: apiKey,
+        range: '7d',
+      );
+      final rows = map['buckets'];
+      if (rows is! List) return;
+      final today = vnTodayLabel();
+      for (final raw in rows) {
+        if (raw is! Map) continue;
+        final row = Map<String, dynamic>.from(raw);
+        if (row['label']?.toString() != today) continue;
+        final count = row['pump_count'];
+        if (count is num) {
+          waterTodayCount = count.round();
+        } else {
+          waterTodayCount = int.tryParse(count?.toString() ?? '') ?? 0;
+        }
+        notifyListeners();
+        return;
+      }
+    } catch (_) {
+      // Giữ giá trị local nếu API lỗi.
+    }
+  }
+
   void _applyCommandPayload(
     Map<String, dynamic> json, {
     bool countWater = false,
+    bool? pumpWasOnBefore,
     bool emit = true,
   }) {
     final action = json['action']?.toString();
@@ -402,7 +449,8 @@ class GardenProvider extends ChangeNotifier {
     }
 
     if (nextPump != null) {
-      if (countWater && nextPump && !pumpOn) {
+      final wasOn = pumpWasOnBefore ?? pumpOn;
+      if (countWater && nextPump && !wasOn) {
         waterTodayCount += 1;
       }
       pumpOn = nextPump;
@@ -454,8 +502,111 @@ class GardenProvider extends ChangeNotifier {
         final payload = _coerceMap(sensorMap['sensor']) ?? sensorMap;
         applyEspPayload(payload);
       }
+      await refreshWaterTodayCount();
+      await refreshActiveGrowingCycle();
     } catch (_) {
       // Ignore errors during initial fetch
+    }
+  }
+
+  Future<void> refreshActiveGrowingCycle() async {
+    final base = _settings?.serverUrl.trim() ?? '';
+    final apiKey = _settings?.apiKey.trim() ?? '';
+    if (base.isEmpty || apiKey.isEmpty) return;
+
+    try {
+      final map = await _esp32.fetchActiveGrowingCycle(
+        serverBase: base,
+        apiKey: apiKey,
+      );
+      final raw = map['cycle'];
+      activeGrowingCycle = raw is Map
+          ? GrowingCycle.fromJson(Map<String, dynamic>.from(raw))
+          : null;
+      notifyListeners();
+    } catch (_) {
+      // Giữ trạng thái cũ nếu lỗi mạng.
+    }
+  }
+
+  static String toIsoDate(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  Future<bool> startGrowingCycle(DateTime startDate, {String? note}) async {
+    final base = _settings?.serverUrl.trim() ?? '';
+    final apiKey = _settings?.apiKey.trim() ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key';
+      notifyListeners();
+      return false;
+    }
+
+    cycleBusy = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final map = await _esp32.startGrowingCycle(
+        serverBase: base,
+        apiKey: apiKey,
+        startedAtIsoDate: toIsoDate(startDate),
+        note: note,
+      );
+      final raw = map['cycle'];
+      if (raw is! Map) {
+        lastError = 'Server không trả chu kỳ hợp lệ';
+        return false;
+      }
+      activeGrowingCycle =
+          GrowingCycle.fromJson(Map<String, dynamic>.from(raw));
+      return true;
+    } catch (e) {
+      lastError = friendlyNetworkError(
+        e,
+        serverUrl: base,
+      );
+      return false;
+    } finally {
+      cycleBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> endActiveGrowingCycle() async {
+    final cycle = activeGrowingCycle;
+    if (cycle == null || !cycle.isActive) return false;
+
+    final base = _settings?.serverUrl.trim() ?? '';
+    final apiKey = _settings?.apiKey.trim() ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key';
+      notifyListeners();
+      return false;
+    }
+
+    cycleBusy = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      await _esp32.endGrowingCycle(
+        serverBase: base,
+        apiKey: apiKey,
+        cycleId: cycle.id,
+      );
+      activeGrowingCycle = null;
+      return true;
+    } catch (e) {
+      lastError = friendlyNetworkError(
+        e,
+        serverUrl: base,
+      );
+      return false;
+    } finally {
+      cycleBusy = false;
+      notifyListeners();
     }
   }
 
@@ -680,13 +831,19 @@ class GardenProvider extends ChangeNotifier {
       );
       final command = _coerceMap(map['command']);
       if (command != null) {
-        _applyCommandPayload(command, countWater: true, emit: false);
+        _applyCommandPayload(
+          command,
+          countWater: true,
+          pumpWasOnBefore: previousPump,
+          emit: false,
+        );
       }
       _applyRelayStatusRows(map['relay_status']);
       final sensor = _coerceMap(map['sensor']);
       if (sensor != null) {
         applyEspPayload(sensor);
       }
+      await refreshWaterTodayCount();
     } catch (e) {
       pumpOn = previousPump;
       lastError = e.toString();

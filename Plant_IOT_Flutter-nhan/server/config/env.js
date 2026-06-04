@@ -32,6 +32,12 @@ const config = {
   MQTT_USERNAME: process.env.MQTT_USERNAME || '',
   MQTT_PASSWORD: process.env.MQTT_PASSWORD || '',
   MQTT_USE_API_KEY_AUTH: (process.env.MQTT_USE_API_KEY_AUTH || 'false').toLowerCase() === 'true',
+  /** Base URL for Flutter IoT API (Settings → Server URL). */
+  PUBLIC_SERVER_URL: (process.env.PUBLIC_SERVER_URL || 'http://103.116.38.192').trim(),
+  /** FastAPI leaf AI base URL (Flutter appends `/predict`). */
+  AI_SERVER_URL: (process.env.AI_SERVER_URL || 'http://103.116.38.192:8000').trim(),
+  /** Optional camera stream / latest image URL. */
+  CAMERA_URL: (process.env.CAMERA_URL || '').trim(),
 };
 
 function validateEnv() {

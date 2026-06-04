@@ -3,27 +3,32 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../widgets/app_card.dart';
 
-/// Giao diện chỉnh chu: font rõ, màu ấm, thẻ có chiều sâu nhẹ — không icon trang trí.
+/// Trắng + Emerald — giao diện sáng, nút bo góc mềm.
 ThemeData buildAppTheme() {
-  const ink = Color(0xFF15221A);
-  const paper = Color(0xFFF3F1EC);
-  const cardTint = Color(0xFFFBFAF8);
-  const line = Color(0xFFDDD8CF);
-  const accent = Color(0xFF1E6B55);
-  const accentMuted = Color(0xFF2A8F72);
+  const ink = Color(0xFF134E4A);
+  const inkMuted = Color(0xFF475569);
+  const paper = Color(0xFFFFFFFF);
+  const surfaceSoft = Color(0xFFF0FDF4);
+  const line = Color(0xFFD1FAE5);
+  const lineMuted = Color(0xFFE2E8F0);
+  const accent = Color(0xFF059669);
+  const accentLight = Color(0xFF10B981);
+  const accentDark = Color(0xFF047857);
 
   final colorScheme = ColorScheme.light(
     primary: accent,
     onPrimary: Colors.white,
-    primaryContainer: const Color(0xFFD4EDE4),
-    onPrimaryContainer: const Color(0xFF0D3D30),
+    primaryContainer: const Color(0xFFD1FAE5),
+    onPrimaryContainer: const Color(0xFF064E3B),
+    secondary: accentLight,
+    onSecondary: Colors.white,
     surface: paper,
     onSurface: ink,
-    surfaceContainerLow: const Color(0xFFECEAE4),
-    surfaceContainerHighest: cardTint,
-    outline: line,
-    outlineVariant: line.withValues(alpha: 0.6),
-    error: const Color(0xFFB3261E),
+    surfaceContainerLow: surfaceSoft,
+    surfaceContainerHighest: paper,
+    outline: lineMuted,
+    outlineVariant: line,
+    error: const Color(0xFFDC2626),
     onError: Colors.white,
   );
 
@@ -32,16 +37,16 @@ ThemeData buildAppTheme() {
     brightness: Brightness.light,
     colorScheme: colorScheme,
     scaffoldBackgroundColor: paper,
-    dividerColor: line.withValues(alpha: 0.65),
+    dividerColor: lineMuted.withValues(alpha: 0.8),
     splashFactory: InkRipple.splashFactory,
     extensions: const [
       AppShadows(
         card: [
           BoxShadow(
-            color: Color(0x1A15221A),
-            blurRadius: 28,
-            offset: Offset(0, 10),
-            spreadRadius: -8,
+            color: Color(0x14059669),
+            blurRadius: 24,
+            offset: Offset(0, 8),
+            spreadRadius: -6,
           ),
         ],
       ),
@@ -51,6 +56,10 @@ ThemeData buildAppTheme() {
   final textTheme = GoogleFonts.plusJakartaSansTextTheme(base.textTheme).apply(
     bodyColor: ink,
     displayColor: ink,
+  );
+
+  final buttonShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(12),
   );
 
   return base.copyWith(
@@ -64,40 +73,61 @@ ThemeData buildAppTheme() {
       surfaceTintColor: Colors.transparent,
       titleTextStyle: GoogleFonts.plusJakartaSans(
         fontSize: 20,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.4,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.3,
         color: ink,
       ),
     ),
+    navigationBarTheme: NavigationBarThemeData(
+      height: 56,
+      backgroundColor: paper,
+      surfaceTintColor: Colors.transparent,
+      indicatorColor: accent.withValues(alpha: 0.14),
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return GoogleFonts.plusJakartaSans(
+          fontSize: 10,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          color: selected ? accentDark : inkMuted,
+        );
+      }),
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return IconThemeData(
+          size: 20,
+          color: selected ? accent : inkMuted.withValues(alpha: 0.75),
+        );
+      }),
+    ),
     cardTheme: CardThemeData(
       elevation: 0,
-      color: cardTint,
+      color: paper,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: line.withValues(alpha: 0.45)),
+        side: BorderSide(color: lineMuted.withValues(alpha: 0.65)),
       ),
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: Colors.white,
+      fillColor: surfaceSoft,
       hintStyle: TextStyle(
-        color: ink.withValues(alpha: 0.38),
+        color: inkMuted.withValues(alpha: 0.55),
         fontWeight: FontWeight.w400,
       ),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: line.withValues(alpha: 0.9)),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: lineMuted.withValues(alpha: 0.9)),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: line.withValues(alpha: 0.9)),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: lineMuted.withValues(alpha: 0.9)),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: accentMuted, width: 1.4),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: accent, width: 1.6),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     ),
@@ -106,26 +136,58 @@ ThemeData buildAppTheme() {
         elevation: 0,
         backgroundColor: accent,
         foregroundColor: Colors.white,
+        disabledBackgroundColor: accent.withValues(alpha: 0.35),
+        disabledForegroundColor: Colors.white.withValues(alpha: 0.85),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: buttonShape,
+        shadowColor: accent.withValues(alpha: 0.35),
         textStyle: GoogleFonts.plusJakartaSans(
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
           fontSize: 14,
-          letterSpacing: 0.2,
+          letterSpacing: 0.1,
         ),
+      ).copyWith(
+        overlayColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.pressed)) {
+            return Colors.white.withValues(alpha: 0.12);
+          }
+          return null;
+        }),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        side: BorderSide(color: line.withValues(alpha: 0.95)),
-        foregroundColor: ink,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        backgroundColor: surfaceSoft,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        side: BorderSide(color: accent.withValues(alpha: 0.35)),
+        foregroundColor: accentDark,
+        disabledForegroundColor: inkMuted.withValues(alpha: 0.45),
+        disabledBackgroundColor: surfaceSoft.withValues(alpha: 0.6),
+        shape: buttonShape,
         textStyle: GoogleFonts.plusJakartaSans(
           fontWeight: FontWeight.w600,
-          fontSize: 14,
+          fontSize: 13,
         ),
+      ).copyWith(
+        side: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return BorderSide(color: lineMuted.withValues(alpha: 0.7));
+          }
+          if (states.contains(WidgetState.pressed)) {
+            return const BorderSide(color: accent, width: 1.4);
+          }
+          return BorderSide(color: accent.withValues(alpha: 0.4));
+        }),
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.pressed)) {
+            return accent.withValues(alpha: 0.08);
+          }
+          if (states.contains(WidgetState.hovered)) {
+            return accent.withValues(alpha: 0.05);
+          }
+          return surfaceSoft;
+        }),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
@@ -147,19 +209,19 @@ ThemeData buildAppTheme() {
       ),
       subtitleTextStyle: GoogleFonts.plusJakartaSans(
         fontSize: 12.5,
-        color: ink.withValues(alpha: 0.55),
+        color: inkMuted,
         height: 1.35,
       ),
     ),
     switchTheme: SwitchThemeData(
-      trackOutlineColor: WidgetStateProperty.all(line),
+      trackOutlineColor: WidgetStateProperty.all(lineMuted),
       thumbColor: WidgetStateProperty.resolveWith((s) {
         if (s.contains(WidgetState.selected)) return Colors.white;
-        return ink.withValues(alpha: 0.45);
+        return inkMuted.withValues(alpha: 0.55);
       }),
       trackColor: WidgetStateProperty.resolveWith((s) {
         if (s.contains(WidgetState.selected)) return accent;
-        return line.withValues(alpha: 0.5);
+        return lineMuted.withValues(alpha: 0.55);
       }),
     ),
     segmentedButtonTheme: SegmentedButtonThemeData(
@@ -174,14 +236,72 @@ ThemeData buildAppTheme() {
           ),
         ),
         shape: WidgetStateProperty.all(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return accent;
+          if (states.contains(WidgetState.disabled)) {
+            return surfaceSoft.withValues(alpha: 0.5);
+          }
+          return paper;
+        }),
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return Colors.white;
+          if (states.contains(WidgetState.disabled)) {
+            return inkMuted.withValues(alpha: 0.45);
+          }
+          return accentDark;
+        }),
+        side: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return const BorderSide(color: accent);
+          }
+          return BorderSide(color: accent.withValues(alpha: 0.28));
+        }),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: surfaceSoft,
+      selectedColor: colorScheme.primaryContainer,
+      side: BorderSide(color: accent.withValues(alpha: 0.28)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      labelStyle: GoogleFonts.plusJakartaSans(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: accentDark,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: accent,
+      circularTrackColor: line.withValues(alpha: 0.65),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: paper,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      titleTextStyle: GoogleFonts.plusJakartaSans(
+        color: ink,
+        fontSize: 18,
+        fontWeight: FontWeight.w700,
+      ),
+      contentTextStyle: GoogleFonts.plusJakartaSans(
+        color: inkMuted,
+        fontSize: 14.5,
+        height: 1.4,
+      ),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: paper,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      backgroundColor: ink,
+      backgroundColor: accentDark,
       contentTextStyle: GoogleFonts.plusJakartaSans(color: Colors.white),
     ),
   );

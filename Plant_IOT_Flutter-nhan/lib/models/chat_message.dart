@@ -3,6 +3,7 @@ enum SenderType { user, ai }
 class ChatMessage {
   ChatMessage({
     required this.id,
+    required this.conversationId,
     required this.text,
     required this.senderType,
     required this.createdAt,
@@ -10,6 +11,7 @@ class ChatMessage {
   });
 
   final int id;
+  final int conversationId;
   final String text;
   final SenderType senderType;
   final DateTime createdAt;
@@ -17,6 +19,7 @@ class ChatMessage {
 
   Map<String, Object?> toMap() => {
         'id': id,
+        'conversation_id': conversationId,
         'text': text,
         'sender_type': senderType == SenderType.user ? 'user' : 'ai',
         'created_at': createdAt.millisecondsSinceEpoch,
@@ -26,6 +29,7 @@ class ChatMessage {
   static ChatMessage fromMap(Map<String, Object?> map) {
     return ChatMessage(
       id: map['id'] as int,
+      conversationId: map['conversation_id'] as int? ?? 0,
       text: map['text'] as String,
       senderType: (map['sender_type'] as String) == 'user'
           ? SenderType.user

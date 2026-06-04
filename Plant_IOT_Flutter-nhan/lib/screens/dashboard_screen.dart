@@ -163,9 +163,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ? 'Đang hiển thị ảnh/luồng mới nhất từ server'
             : 'Đã kết nối server, đang chờ ảnh camera mới')
         : 'Không kết nối được camera/server IoT';
-    final cameraStatusColor = connectionHealthy
-        ? const Color(0xFF1F9D5A)
-        : scheme.error;
+    final cameraStatusColor = connectionHealthy ? scheme.primary : scheme.error;
 
     return Scaffold(
       backgroundColor: scheme.surface,

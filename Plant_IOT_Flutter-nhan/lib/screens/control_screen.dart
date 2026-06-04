@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/growing_cycle.dart';
 import '../providers/garden_provider.dart';
 import '../widgets/app_card.dart';
 import '../widgets/section_label.dart';
@@ -16,6 +17,26 @@ class ControlScreen extends StatefulWidget {
 class _ControlScreenState extends State<ControlScreen> {
   int shadeCooldown = 0;
   Timer? _timer;
+  DateTime _plantStartDate = DateTime.now();
+
+  String _formatDate(DateTime d) {
+    final day = d.day.toString().padLeft(2, '0');
+    final month = d.month.toString().padLeft(2, '0');
+    return '$day/$month/${d.year}';
+  }
+
+  Future<void> _pickPlantStartDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _plantStartDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      helpText: 'Ngày bắt đầu trồng',
+    );
+    if (picked != null) {
+      setState(() => _plantStartDate = picked);
+    }
+  }
 
   void startCooldown() {
     setState(() {
@@ -62,9 +83,19 @@ class _ControlScreenState extends State<ControlScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<GardenProvider>().refreshActiveGrowingCycle();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final garden = context.watch<GardenProvider>();
     final scheme = Theme.of(context).colorScheme;
+    final cycle = garden.activeGrowingCycle;
+    final cycleBusy = garden.cycleBusy;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Điều khiển')),
@@ -159,6 +190,7 @@ class _ControlScreenState extends State<ControlScreen> {
                       ? '${shadeCooldown}s'
                       : 'Mở',
                   onPressed: () async {
+                    final gardenProvider = context.read<GardenProvider>();
                     final confirm = await showConfirm(
                       context,
                       garden.shadeOn
@@ -169,13 +201,9 @@ class _ControlScreenState extends State<ControlScreen> {
                     if (!confirm) return;
 
                     if (garden.shadeOn) {
-                      await context
-                          .read<GardenProvider>()
-                          .closeShade();
+                      await gardenProvider.closeShade();
                     } else {
-                      await context
-                          .read<GardenProvider>()
-                          .openShade();
+                      await gardenProvider.openShade();
                     }
 
                     startCooldown(); // 🔥 khóa 60s
@@ -190,10 +218,11 @@ class _ControlScreenState extends State<ControlScreen> {
                   on: garden.pumpDisplayOn,
                   busy: garden.iotBusy,
                   subtitle:
-                      'Trạng thái: ${garden.pumpDisplayOn ? 'Đang tắt' : 'Đang bật'}',
-                  onLabel: 'Bật',
-                  offLabel: 'Tắt',
+                      'Trạng thái: ${garden.pumpDisplayOn ? 'Đang bật' : 'Đang tắt'}',
+                  onLabel: 'Tắt',
+                  offLabel: 'Bật',
                   onPressed: () async {
+                    final gardenProvider = context.read<GardenProvider>();
                     final confirm = await showConfirm(
                       context,
                       garden.pumpDisplayOn
@@ -202,18 +231,76 @@ class _ControlScreenState extends State<ControlScreen> {
                     );
 
                     if (!confirm) return;
-
-                    context
-                        .read<GardenProvider>()
-                        .togglePump();
+                    gardenProvider.togglePump();
                   },
+                ),
+
+                const SizedBox(height: 26),
+                const SectionLabel('Chu kỳ trồng'),
+                const SizedBox(height: 4),
+                AppCard(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                  child: cycle != null && cycle.isActive
+                      ? _ActiveCyclePanel(
+                          cycle: cycle,
+                          busy: cycleBusy,
+                          onEnd: () async {
+                            final ok = await showConfirm(
+                              context,
+                              'Kết thúc chu kỳ bắt đầu từ ${cycle.startedLabel}?',
+                            );
+                            if (!ok || !context.mounted) return;
+                            final success = await context
+                                .read<GardenProvider>()
+                                .endActiveGrowingCycle();
+                            if (!context.mounted) return;
+                            if (success) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Đã kết thúc chu kỳ trồng'),
+                                ),
+                              );
+                            } else if (garden.lastError != null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(garden.lastError!)),
+                              );
+                            }
+                          },
+                        )
+                      : _StartCyclePanel(
+                          startDateLabel: _formatDate(_plantStartDate),
+                          busy: cycleBusy,
+                          onPickDate: cycleBusy ? null : _pickPlantStartDate,
+                          onStart: () async {
+                            final ok = await showConfirm(
+                              context,
+                              'Bắt đầu theo dõi chu kỳ từ ngày ${_formatDate(_plantStartDate)}?',
+                            );
+                            if (!ok || !context.mounted) return;
+                            final success = await context
+                                .read<GardenProvider>()
+                                .startGrowingCycle(_plantStartDate);
+                            if (!context.mounted) return;
+                            if (success) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Đã lưu ngày bắt đầu trồng'),
+                                ),
+                              );
+                            } else if (garden.lastError != null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(garden.lastError!)),
+                              );
+                            }
+                          },
+                        ),
                 ),
               ],
             ),
           ),
 
           /// ⏳ LOADING OVERLAY
-          if (garden.iotBusy)
+          if (garden.iotBusy || cycleBusy)
             Positioned.fill(
               child: ColoredBox(
                 color: scheme.surface
@@ -225,6 +312,105 @@ class _ControlScreenState extends State<ControlScreen> {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _StartCyclePanel extends StatelessWidget {
+  const _StartCyclePanel({
+    required this.startDateLabel,
+    required this.busy,
+    required this.onPickDate,
+    required this.onStart,
+  });
+
+  final String startDateLabel;
+  final bool busy;
+  final VoidCallback? onPickDate;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Theo dõi số ngày từ khi trồng (lưu trên server).',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: scheme.onSurface.withValues(alpha: 0.55),
+                height: 1.4,
+              ),
+        ),
+        const SizedBox(height: 14),
+        OutlinedButton.icon(
+          onPressed: onPickDate,
+          icon: const Icon(Icons.calendar_today_outlined, size: 18),
+          label: Text('Ngày bắt đầu: $startDateLabel'),
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: busy ? null : onStart,
+          icon: const Icon(Icons.eco_outlined, size: 20),
+          label: const Text('Bắt đầu chu kỳ'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActiveCyclePanel extends StatelessWidget {
+  const _ActiveCyclePanel({
+    required this.cycle,
+    required this.busy,
+    required this.onEnd,
+  });
+
+  final GrowingCycle cycle;
+  final bool busy;
+  final VoidCallback onEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final c = cycle;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.spa_outlined, color: scheme.primary, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Đang theo dõi — ngày thứ ${c.daysElapsed}',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Bắt đầu trồng: ${c.startedLabel}',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurface.withValues(alpha: 0.72),
+              ),
+        ),
+        const SizedBox(height: 14),
+        OutlinedButton.icon(
+          onPressed: busy ? null : onEnd,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: scheme.error,
+            side: BorderSide(color: scheme.error.withValues(alpha: 0.55)),
+          ),
+          icon: const Icon(Icons.flag_outlined, size: 18),
+          label: const Text('Kết thúc chu kỳ'),
+        ),
+      ],
     );
   }
 }

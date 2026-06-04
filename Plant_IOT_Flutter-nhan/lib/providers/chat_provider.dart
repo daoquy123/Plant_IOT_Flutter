@@ -11,7 +11,9 @@ import 'package:path_provider/path_provider.dart';
 import '../data/ai_predict_client.dart';
 import '../data/chat_database.dart';
 import '../data/esp32_client.dart';
+import '../models/chat_conversation.dart';
 import '../models/chat_message.dart';
+import '../utils/conversation_time.dart';
 import 'garden_provider.dart';
 import 'settings_provider.dart';
 
@@ -32,7 +34,9 @@ class ChatProvider extends ChangeNotifier {
   final ImagePicker _picker;
   SettingsProvider? _settings;
 
+  final List<ChatConversation> conversations = [];
   final List<ChatMessage> messages = [];
+  int? activeConversationId;
   bool loadingHistory = true;
   bool sending = false;
   String? lastError;
@@ -43,6 +47,21 @@ class ChatProvider extends ChangeNotifier {
     'Gợi ý lịch tưới',
   ];
 
+  static const modelOptions = <String, String>{
+    'vgg16': 'VGG16',
+    'resnet': 'ResNet',
+  };
+
+  ChatConversation? get activeConversation {
+    if (activeConversationId == null) return null;
+    for (final c in conversations) {
+      if (c.id == activeConversationId) return c;
+    }
+    return null;
+  }
+
+  String get selectedModel => activeConversation?.model ?? 'vgg16';
+
   void attachSettings(SettingsProvider settings) {
     _settings = settings;
   }
@@ -51,16 +70,136 @@ class ChatProvider extends ChangeNotifier {
     loadingHistory = true;
     notifyListeners();
     try {
-      final list = await _db.loadMessages();
-      messages
+      conversations
         ..clear()
-        ..addAll(list);
+        ..addAll(await _db.loadConversations());
+      sortConversationsByRecent(conversations);
+      await _selectOrCreateFreshConversation();
     } catch (e) {
       lastError = e.toString();
     } finally {
       loadingHistory = false;
       notifyListeners();
     }
+  }
+
+  /// Mở app/tab AI: ưu tiên cuộc trò chuyện trống, không thì tạo mới.
+  Future<void> _selectOrCreateFreshConversation() async {
+    for (final conv in conversations) {
+      if (conv.title == 'Cuộc trò chuyện mới') {
+        final count = await _db.countMessages(conv.id);
+        if (count == 0) {
+          activeConversationId = conv.id;
+          messages.clear();
+          return;
+        }
+      }
+    }
+    await createNewConversation(select: true);
+  }
+
+  Future<void> createNewConversation({bool select = true}) async {
+    lastError = null;
+    final conv = await _db.createConversation();
+    conversations.add(conv);
+    sortConversationsByRecent(conversations);
+    if (select) {
+      activeConversationId = conv.id;
+      messages.clear();
+    }
+    notifyListeners();
+  }
+
+  Future<void> selectConversation(int id) async {
+    if (activeConversationId == id) return;
+    activeConversationId = id;
+    lastError = null;
+    loadingHistory = true;
+    notifyListeners();
+    try {
+      await _loadMessagesForActive();
+    } catch (e) {
+      lastError = e.toString();
+    } finally {
+      loadingHistory = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteConversation(int id) async {
+    await _db.deleteConversation(id);
+    conversations.removeWhere((c) => c.id == id);
+    sortConversationsByRecent(conversations);
+    if (activeConversationId == id) {
+      if (conversations.isEmpty) {
+        await createNewConversation(select: true);
+      } else {
+        await selectConversation(conversations.first.id);
+      }
+    } else {
+      notifyListeners();
+    }
+  }
+
+  Future<void> renameConversation(int id, String title) async {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) return;
+    await _db.updateConversation(id: id, title: trimmed);
+    final index = conversations.indexWhere((c) => c.id == id);
+    if (index >= 0) {
+      conversations[index] = conversations[index].copyWith(title: trimmed);
+      notifyListeners();
+    }
+  }
+
+  Future<void> setSelectedModel(String model) async {
+    final convId = activeConversationId;
+    if (convId == null) return;
+    await _db.updateConversation(id: convId, model: model);
+    final index = conversations.indexWhere((c) => c.id == convId);
+    if (index >= 0) {
+      conversations[index] = conversations[index].copyWith(model: model);
+    }
+    notifyListeners();
+  }
+
+  Future<void> _loadMessagesForActive() async {
+    final convId = activeConversationId;
+    if (convId == null) {
+      messages.clear();
+      return;
+    }
+    final list = await _db.loadMessages(convId);
+    messages
+      ..clear()
+      ..addAll(list);
+  }
+
+  Future<int> _ensureConversationId() async {
+    if (activeConversationId != null) return activeConversationId!;
+    await createNewConversation(select: true);
+    return activeConversationId!;
+  }
+
+  Future<void> _maybeRenameConversation(int conversationId, String text) async {
+    final conv = conversations.firstWhere((c) => c.id == conversationId);
+    if (conv.title != 'Cuộc trò chuyện mới') return;
+    final count = await _db.countMessages(conversationId);
+    if (count > 1) return;
+
+    final title = _titleFromMessage(text);
+    await _db.updateConversation(id: conversationId, title: title);
+    final index = conversations.indexWhere((c) => c.id == conversationId);
+    if (index >= 0) {
+      conversations[index] = conversations[index].copyWith(title: title);
+    }
+  }
+
+  String _titleFromMessage(String text) {
+    final cleaned = text.replaceAll('\n', ' ').trim();
+    if (cleaned.isEmpty) return 'Cuộc trò chuyện mới';
+    if (cleaned.length <= 42) return cleaned;
+    return '${cleaned.substring(0, 42).trim()}…';
   }
 
   Future<void> sendUserText(String text) async {
@@ -70,16 +209,25 @@ class ChatProvider extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
-      final row = await _db.insertMessage(text: t, senderType: SenderType.user);
+      final convId = await _ensureConversationId();
+      final row = await _db.insertMessage(
+        conversationId: convId,
+        text: t,
+        senderType: SenderType.user,
+      );
       messages.add(row);
+      await _maybeRenameConversation(convId, t);
+      _touchConversation(convId);
       notifyListeners();
 
       final reply = await _mockOrForwardToAi(t);
       final aiRow = await _db.insertMessage(
+        conversationId: convId,
         text: reply,
         senderType: SenderType.ai,
       );
       messages.add(aiRow);
+      _touchConversation(convId);
     } catch (e) {
       lastError = e.toString();
     } finally {
@@ -88,8 +236,6 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  /// Gửi ảnh lên predict-api; chèn tin nhắn user + phản hồi AI vào thread duy nhất.
-  /// Trả về nội dung phân tích khi thành công (để đồng bộ tình trạng cây).
   Future<String?> pickImageAndPredict({String? model}) async {
     final file = await _picker.pickImage(
       source: ImageSource.gallery,
@@ -104,32 +250,38 @@ class ChatProvider extends ChangeNotifier {
       return null;
     }
 
+    final resolvedModel = model ?? selectedModel;
     sending = true;
     lastError = null;
     notifyListeners();
 
     try {
+      final convId = await _ensureConversationId();
+      final userText = '[Ảnh đính kèm - $resolvedModel]';
       final userRow = await _db.insertMessage(
-        text: model == null || model.trim().isEmpty
-            ? '[Ảnh đính kèm]'
-            : '[Ảnh đính kèm - ${model.trim()}]',
+        conversationId: convId,
+        text: userText,
         senderType: SenderType.user,
         localImagePath: file.path,
       );
       messages.add(userRow);
+      await _maybeRenameConversation(convId, userText);
+      _touchConversation(convId);
       notifyListeners();
 
       final map = await _ai.predictImageFile(
         predictEndpoint: endpoint,
         imageFile: File(file.path),
-        model: model,
+        model: resolvedModel,
       );
-      final reply = formatPredictReply(map, model: model);
+      final reply = formatPredictReply(map, model: resolvedModel);
       final aiRow = await _db.insertMessage(
+        conversationId: convId,
         text: reply,
         senderType: SenderType.ai,
       );
       messages.add(aiRow);
+      _touchConversation(convId);
       return reply;
     } catch (e) {
       lastError = e.toString();
@@ -141,9 +293,10 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<String?> analyzeCurrentCameraImage({
-    required String model,
+    String? model,
     String? preferredImageUrl,
   }) async {
+    final resolvedModel = model ?? selectedModel;
     final endpoint = _settings?.predictEndpoint ?? '';
     final serverBase = _settings?.serverUrl.trim() ?? '';
     final apiKey = _settings?.apiKey.trim() ?? '';
@@ -162,6 +315,7 @@ class ChatProvider extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
+      final convId = await _ensureConversationId();
       final imageUrl = await _resolveLatestCameraUrl(
         serverBase: serverBase,
         apiKey: apiKey,
@@ -171,26 +325,32 @@ class ChatProvider extends ChangeNotifier {
       final flippedBytes = await _flipImageVertically(imageBytes);
       final previewImagePath = await _savePreviewImageBytes(flippedBytes);
       const filename = 'camera_latest_flipped.png';
+      final userText = '[Kiểm tra sức khỏe cây - $resolvedModel]';
       final userRow = await _db.insertMessage(
-        text: '[Kiểm tra sức khỏe cây - $model]',
+        conversationId: convId,
+        text: userText,
         senderType: SenderType.user,
         localImagePath: previewImagePath,
       );
       messages.add(userRow);
+      await _maybeRenameConversation(convId, userText);
+      _touchConversation(convId);
       notifyListeners();
 
       final map = await _ai.predictImageBytes(
         predictEndpoint: endpoint,
         bytes: flippedBytes,
         filename: filename,
-        model: model,
+        model: resolvedModel,
       );
-      final reply = formatPredictReply(map, model: model);
+      final reply = formatPredictReply(map, model: resolvedModel);
       final aiRow = await _db.insertMessage(
+        conversationId: convId,
         text: reply,
         senderType: SenderType.ai,
       );
       messages.add(aiRow);
+      _touchConversation(convId);
       return reply;
     } catch (e) {
       lastError = e.toString();
@@ -212,11 +372,18 @@ class ChatProvider extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
+      await garden.refreshWaterTodayCount();
+      await garden.refreshActiveGrowingCycle();
+
+      final convId = await _ensureConversationId();
       final userRow = await _db.insertMessage(
+        conversationId: convId,
         text: intent,
         senderType: SenderType.user,
       );
       messages.add(userRow);
+      await _maybeRenameConversation(convId, intent);
+      _touchConversation(convId);
       notifyListeners();
 
       final reply = switch (normalized) {
@@ -226,10 +393,12 @@ class ChatProvider extends ChangeNotifier {
       };
 
       final aiRow = await _db.insertMessage(
+        conversationId: convId,
         text: reply,
         senderType: SenderType.ai,
       );
       messages.add(aiRow);
+      _touchConversation(convId);
       return reply;
     } catch (e) {
       lastError = e.toString();
@@ -238,6 +407,14 @@ class ChatProvider extends ChangeNotifier {
       sending = false;
       notifyListeners();
     }
+  }
+
+  void _touchConversation(int conversationId, {DateTime? updatedAt}) {
+    final now = updatedAt ?? DateTime.now();
+    final index = conversations.indexWhere((c) => c.id == conversationId);
+    if (index < 0) return;
+    conversations[index] = conversations[index].copyWith(updatedAt: now);
+    sortConversationsByRecent(conversations);
   }
 
   String _buildHarvestForecast(GardenProvider garden) {
@@ -269,8 +446,14 @@ class ChatProvider extends ChangeNotifier {
       _ => 'Cao',
     };
 
+    final cycle = garden.activeGrowingCycle;
+    final cycleLine = cycle != null && cycle.isActive
+        ? '- Ngày trồng (chu kỳ đang theo dõi): ngày thứ ${cycle.daysElapsed} (bắt đầu ${cycle.startedLabel})'
+        : '- Ngày trồng: chưa bắt đầu chu kỳ trên Điều khiển';
+
     return [
       'Dự báo thu hoạch:',
+      cycleLine,
       '- Điểm sinh trưởng hiện tại: $stabilityScore/100',
       '- Thời gian thu hoạch ước tính: $days',
       '- Mức rủi ro chậm phát triển: $risk',
@@ -495,7 +678,6 @@ class ChatProvider extends ChangeNotifier {
     return payload['message']?.toString() ?? json['message']?.toString() ?? payload.toString();
   }
 
-  /// Khi bạn có API chat thật, thay nội dung hàm này bằng HTTP tới server.
   Future<String> _mockOrForwardToAi(String userText) async {
     await Future<void>.delayed(const Duration(milliseconds: 400));
     return 'Smart Garden (demo): bạn đã gửi "$userText". '

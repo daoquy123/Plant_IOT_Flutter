@@ -136,6 +136,17 @@ function runMigrations() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_device_status_device_id ON device_status(device_id);
+
+    CREATE TABLE IF NOT EXISTS growing_cycles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_growing_cycles_started_at ON growing_cycles(started_at);
+    CREATE INDEX IF NOT EXISTS idx_growing_cycles_ended_at ON growing_cycles(ended_at);
   `;
 
   database.exec(migrations, (err) => {

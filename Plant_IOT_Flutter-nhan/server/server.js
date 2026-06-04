@@ -18,6 +18,8 @@ const historyRoutes = require('./src/routes/history');
 const relayRoutes = require('./src/routes/relay');
 const cameraRoutes = require('./src/routes/camera');
 const healthRoutes = require('./src/routes/health');
+const configRoutes = require('./src/routes/config');
+const growingCycleRoutes = require('./src/routes/growing_cycles');
 const { insertReading } = require('./services/sensorService');
 const { createRelayState, getRelayStatus } = require('./services/relayService');
 
@@ -104,11 +106,13 @@ app.use(rateLimiter);
 app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '1h' }));
 
 app.use('/health', healthRoutes);
+app.use('/api/config', configRoutes);
 app.use('/api', authMiddleware);
 app.use('/api/sensors', sensorRoutes);
 app.use('/api/sensors', historyRoutes);
 app.use('/api/relay', relayRoutes);
 app.use('/api/camera', cameraRoutes);
+app.use('/api/growing-cycles', growingCycleRoutes);
 
 app.use(errorHandler);
 

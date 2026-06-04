@@ -1,5 +1,9 @@
-import 'package:flutter/foundation.dart';
+import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+
+import '../config/server_defaults.dart';
 import '../data/preference_keys.dart';
 import '../data/preferences_service.dart';
 
@@ -37,8 +41,53 @@ class SettingsProvider extends ChangeNotifier {
     cameraUrl = map[PreferenceKeys.cameraUrl] as String? ?? '';
     aiServerUrl = map[PreferenceKeys.aiServerUrl] as String? ?? '';
     autoWater = map[PreferenceKeys.autoWater] as bool? ?? false;
+    await _syncFromServerEnv();
     _loaded = true;
     notifyListeners();
+  }
+
+  /// Đọc PUBLIC_SERVER_URL, AI_SERVER_URL từ server `.env` (GET /api/config).
+  Future<void> _syncFromServerEnv() async {
+    final base = serverUrl.trim().isNotEmpty ? serverUrl.trim() : kDefaultIotServerUrl;
+    try {
+      final uri = Uri.parse(
+        base.startsWith('http') ? base : 'http://$base',
+      ).resolve('/api/config');
+      final response = await http.get(uri).timeout(const Duration(seconds: 12));
+      if (response.statusCode < 200 || response.statusCode >= 300) return;
+
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      if (decoded is! Map<String, dynamic>) return;
+
+      final publicUrl = decoded['public_server_url']?.toString().trim() ?? '';
+      final aiUrl = decoded['ai_server_url']?.toString().trim() ?? '';
+      final camUrl = decoded['camera_url']?.toString().trim() ?? '';
+
+      var changed = false;
+      if (publicUrl.isNotEmpty && publicUrl != serverUrl) {
+        serverUrl = publicUrl;
+        changed = true;
+      }
+      if (aiUrl.isNotEmpty && aiUrl != aiServerUrl) {
+        aiServerUrl = aiUrl;
+        changed = true;
+      }
+      if (camUrl.isNotEmpty && camUrl != cameraUrl) {
+        cameraUrl = camUrl;
+        changed = true;
+      }
+      if (changed) {
+        await _preferences.saveConnectionConfig(
+          serverUrl: serverUrl.trim(),
+          apiKey: apiKey.trim(),
+          cameraUrl: cameraUrl.trim(),
+          aiServerUrl: aiServerUrl.trim(),
+          autoWater: autoWater,
+        );
+      }
+    } catch (_) {
+      // Giữ giá trị local nếu server chưa cập nhật /api/config.
+    }
   }
 
   Future<void> saveAll() async {
