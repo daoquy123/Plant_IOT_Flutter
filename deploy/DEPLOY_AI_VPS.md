@@ -73,40 +73,7 @@ git pull origin main
 bash deploy/deploy-ai.sh
 ```
 
-## 6. Chat Qwen (Ollama — khuyến nghị)
-
-Chatbot Flutter gọi `POST /api/chat` trên cùng service port 8000. Backend gọi **Ollama** chạy model Qwen nhỏ (tách process, không nặng thêm TensorFlow).
-
-```bash
-# Trên VPS
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5:0.5b
-sudo systemctl enable ollama
-sudo systemctl start ollama
-
-# Thử
-curl http://127.0.0.1:11434/api/tags
-curl -s http://127.0.0.1:8000/health | jq .qwen_chat
-
-curl -s -X POST http://127.0.0.1:8000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Nên tưới cải khi nào?","history":[]}'
-```
-
-Biến môi trường (xem `deploy/.env.ai.example`, đã gợi ý trong `ecosystem.config.js`):
-
-| Biến | Mặc định |
-|------|----------|
-| `QWEN_CHAT_ENABLED` | `1` |
-| `QWEN_PROVIDER` | `ollama` |
-| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` |
-| `QWEN_MODEL` | `qwen2.5:0.5b` |
-
-**DashScope** (cloud): đặt `QWEN_PROVIDER=openai`, `OPENAI_API_BASE`, `OPENAI_API_KEY`, `QWEN_MODEL=qwen-turbo`.
-
-Sau khi đổi env: `pm2 reload ecosystem.config.js --only plant-ai --env production`.
-
-## 7. Proxy qua Nginx (tuỳ chọn)
+## 6. Proxy qua Nginx (tuỳ chọn)
 
 Xem `deploy/nginx-ai-snippet.conf`. Khi dùng proxy, Flutter nhập:
 

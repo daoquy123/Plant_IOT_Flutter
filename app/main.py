@@ -5,24 +5,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
 
-from app.chat.qwen_client import chat_reply, chat_status
 from app.ml.predictor import get_predictor
 
 _APP_ROOT = Path(__file__).resolve().parent
 
-app = FastAPI(title="Plant AI — Leaf CNN + Qwen Chat")
-
-
-class ChatHistoryItem(BaseModel):
-    role: str = Field(..., description="user hoặc assistant")
-    content: str = Field(..., min_length=1, max_length=8000)
-
-
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=4000)
-    history: list[ChatHistoryItem] = Field(default_factory=list)
+app = FastAPI(title="Leaf Health AI - VGG16 + CBAM")
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,41 +73,10 @@ async def predict_flutter(file: UploadFile = File(...), model: str = Form("vgg16
     return await _predict_image(file, model)
 
 
-async def _chat_json(body: ChatRequest) -> JSONResponse:
-    history = []
-    for h in body.history:
-        role = h.role.strip().lower()
-        if role not in ("user", "assistant"):
-            raise HTTPException(
-                status_code=400,
-                detail="history.role phải là user hoặc assistant",
-            )
-        history.append({"role": role, "content": h.content})
-    try:
-        reply = chat_reply(body.message, history=history)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return JSONResponse({"status": "ok", "reply": reply})
-
-
-@app.post("/api/chat")
-async def api_chat(body: ChatRequest):
-    """Chat Qwen (Ollama / API tương thích) — Flutter gọi cùng base AI server."""
-    return await _chat_json(body)
-
-
-@app.post("/chat")
-async def chat_flutter(body: ChatRequest):
-    """Alias cho Flutter: {aiServerUrl}/chat."""
-    return await _chat_json(body)
-
-
 @app.get("/api/health")
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "plant-ai", "qwen_chat": chat_status()}
+    return {"status": "ok", "service": "plant-ai"}
 
 
 if __name__ == "__main__":

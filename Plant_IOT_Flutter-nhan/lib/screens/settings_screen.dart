@@ -188,7 +188,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             label: 'URL AI Server',
             controller: _ai,
             onChanged: settings.setAiServerUrl,
-            hintText: 'Local: http://127.0.0.1:8000 — bấm Lưu hoặc gõ là dùng ngay',
           ),
         ],
       ),

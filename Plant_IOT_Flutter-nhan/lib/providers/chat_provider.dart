@@ -8,14 +8,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../data/ai_chat_client.dart';
 import '../data/ai_predict_client.dart';
 import '../data/chat_database.dart';
 import '../data/esp32_client.dart';
 import '../models/chat_conversation.dart';
 import '../models/chat_message.dart';
 import '../utils/conversation_time.dart';
-import '../utils/network_error_message.dart';
 import 'garden_provider.dart';
 import 'settings_provider.dart';
 
@@ -23,18 +21,15 @@ class ChatProvider extends ChangeNotifier {
   ChatProvider({
     ChatDatabase? database,
     AiPredictClient? aiClient,
-    AiChatClient? chatClient,
     Esp32Client? esp32,
     ImagePicker? picker,
   })  : _db = database ?? ChatDatabase(),
         _ai = aiClient ?? AiPredictClient(),
-        _chatAi = chatClient ?? AiChatClient(),
         _esp32 = esp32 ?? Esp32Client(),
         _picker = picker ?? ImagePicker();
 
   final ChatDatabase _db;
   final AiPredictClient _ai;
-  final AiChatClient _chatAi;
   final Esp32Client _esp32;
   final ImagePicker _picker;
   SettingsProvider? _settings;
@@ -205,43 +200,6 @@ class ChatProvider extends ChangeNotifier {
     if (cleaned.isEmpty) return 'Cuộc trò chuyện mới';
     if (cleaned.length <= 42) return cleaned;
     return '${cleaned.substring(0, 42).trim()}…';
-  }
-
-  Future<void> sendUserText(String text) async {
-    final t = text.trim();
-    if (t.isEmpty) return;
-    sending = true;
-    lastError = null;
-    notifyListeners();
-    try {
-      final convId = await _ensureConversationId();
-      final row = await _db.insertMessage(
-        conversationId: convId,
-        text: t,
-        senderType: SenderType.user,
-      );
-      messages.add(row);
-      await _maybeRenameConversation(convId, t);
-      _touchConversation(convId);
-      notifyListeners();
-
-      final reply = await _mockOrForwardToAi(t);
-      final aiRow = await _db.insertMessage(
-        conversationId: convId,
-        text: reply,
-        senderType: SenderType.ai,
-      );
-      messages.add(aiRow);
-      _touchConversation(convId);
-    } catch (e) {
-      lastError = friendlyNetworkError(
-        e,
-        serverUrl: _settings?.aiServerUrl,
-      );
-    } finally {
-      sending = false;
-      notifyListeners();
-    }
   }
 
   Future<String?> pickImageAndPredict({String? model}) async {
@@ -628,51 +586,14 @@ class ChatProvider extends ChangeNotifier {
     return payload['message']?.toString() ?? json['message']?.toString() ?? payload.toString();
   }
 
-  List<ChatHistoryEntry> _buildChatHistory({int maxTurns = 10}) {
-    final recent = messages.length <= maxTurns * 2
-        ? messages
-        : messages.sublist(messages.length - maxTurns * 2);
-    final out = <ChatHistoryEntry>[];
-    for (final m in recent) {
-      final text = m.text.trim();
-      if (text.isEmpty) continue;
-      final role = m.senderType == SenderType.user ? 'user' : 'assistant';
-      out.add(ChatHistoryEntry(role: role, content: text));
-    }
-    if (out.isNotEmpty && out.last.role == 'user') {
-      out.removeLast();
-    }
-    return out;
-  }
-
   Future<String> _mockOrForwardToAi(String userText) async {
-    final endpoint = _settings?.chatEndpoint ?? '';
-    if (endpoint.isEmpty) {
-      throw StateError('Chưa cấu hình URL AI Server (Cài đặt)');
-    }
-    try {
-      return await _chatAi.sendMessage(
-        chatEndpoint: endpoint,
-        message: userText,
-        history: _buildChatHistory(),
-      );
-    } on AiChatException catch (e) {
-      if (e.statusCode == 404) {
-        throw StateError(
-          'API chưa có /api/chat (404) tại $endpoint. '
-          'Local: chạy scripts/run-local-ai.ps1. VPS: deploy code AI mới.',
-        );
-      }
-      throw StateError(
-        e.message.isNotEmpty ? e.message : 'Lỗi chat HTTP ${e.statusCode}',
-      );
-    }
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    return 'Smart Garden: "$userText" — chỉ hỗ trợ gợi ý nhanh và phân tích ảnh.';
   }
 
   @override
   void dispose() {
     _ai.close();
-    _chatAi.close();
     _esp32.close();
     super.dispose();
   }

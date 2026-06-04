@@ -39,11 +39,13 @@ done
 
 echo "[4/5] PM2 restart AI..."
 mkdir -p logs
-if pm2 describe plant-ai >/dev/null 2>&1; then
-  pm2 reload ecosystem.config.js --only plant-ai --env production
-else
-  pm2 start ecosystem.config.js --only plant-ai --env production
-fi
+pm2 delete plant-ai 2>/dev/null || true
+pm2 start "$ROOT_DIR/.venv/bin/uvicorn" \
+  --name plant-ai \
+  --interpreter none \
+  --cwd "$ROOT_DIR" \
+  -- \
+  app.main:app --host 0.0.0.0 --port 8000 --workers 1
 pm2 save
 
 echo "[5/5] Health check..."

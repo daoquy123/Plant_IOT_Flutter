@@ -344,7 +344,6 @@ class _ChatMainPanel extends StatelessWidget {
               ],
             ),
           ),
-        _ChatComposer(enabled: !isBusy),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
           child: Wrap(
@@ -478,90 +477,6 @@ class _SuggestionChip extends StatelessWidget {
   }
 }
 
-/// Ô nhập tin nhắn → `ChatProvider.sendUserText` → API `/api/chat` (Qwen).
-class _ChatComposer extends StatefulWidget {
-  const _ChatComposer({required this.enabled});
-
-  final bool enabled;
-
-  @override
-  State<_ChatComposer> createState() => _ChatComposerState();
-}
-
-class _ChatComposerState extends State<_ChatComposer> {
-  final _controller = TextEditingController();
-  final _focus = FocusNode();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _focus.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || !widget.enabled) return;
-    _controller.clear();
-    await context.read<ChatProvider>().sendUserText(text);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final chat = context.watch<ChatProvider>();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              focusNode: _focus,
-              enabled: widget.enabled,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onSubmitted: widget.enabled ? (_) => _send() : null,
-              decoration: InputDecoration(
-                hintText: 'Hỏi về chăm sóc cải, tưới, sâu bệnh…',
-                filled: true,
-                fillColor: scheme.surfaceContainerLow,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: scheme.outline.withValues(alpha: 0.5)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: scheme.outline.withValues(alpha: 0.45)),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton.filled(
-            onPressed: widget.enabled && !chat.sending ? _send : null,
-            icon: chat.sending
-                ? SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      color: scheme.onPrimary,
-                    ),
-                  )
-                : const Icon(Icons.send_rounded, size: 22),
-            tooltip: 'Gửi',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ChatEmptyState extends StatelessWidget {
   const _ChatEmptyState();
 
@@ -572,7 +487,7 @@ class _ChatEmptyState extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
         child: Text(
-          'Nhập câu hỏi ở ô bên dưới,\nhoặc chọn gợi ý / gửi ảnh lá.',
+          'Chọn gợi ý nhanh hoặc gửi ảnh lá để phân tích.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,

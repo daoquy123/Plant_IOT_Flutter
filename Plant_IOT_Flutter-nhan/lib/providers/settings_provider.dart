@@ -23,27 +23,16 @@ class SettingsProvider extends ChangeNotifier {
   bool get isLoaded => _loaded;
 
   /// Endpoint đầy đủ cho predict (AI base + `/predict` nếu base không có path).
-  String get predictEndpoint => _resolveAiSuffix('/predict');
-
-  /// Endpoint chat Qwen (AI base + `/api/chat`).
-  String get chatEndpoint => _resolveAiSuffix('/api/chat');
-
-  String _resolveAiSuffix(String suffix) {
+  String get predictEndpoint {
     final base = aiServerUrl.trim();
     if (base.isEmpty) return '';
     if (base.contains('/')) {
       final uri = Uri.tryParse(base);
-      if (uri != null && uri.pathSegments.isNotEmpty) {
-        if (suffix == '/predict') return base;
-        if (base.endsWith('/predict')) {
-          return base.replaceFirst(RegExp(r'/predict$'), '/api/chat');
-        }
-        return base;
-      }
+      if (uri != null && uri.pathSegments.isNotEmpty) return base;
     }
     final normalized =
         base.endsWith('/') ? base.substring(0, base.length - 1) : base;
-    return '$normalized$suffix';
+    return '$normalized/predict';
   }
 
   Future<void> load() async {
