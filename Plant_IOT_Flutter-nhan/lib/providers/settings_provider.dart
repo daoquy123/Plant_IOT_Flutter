@@ -23,15 +23,27 @@ class SettingsProvider extends ChangeNotifier {
   bool get isLoaded => _loaded;
 
   /// Endpoint đầy đủ cho predict (AI base + `/predict` nếu base không có path).
-  String get predictEndpoint {
+  String get predictEndpoint => _resolveAiSuffix('/predict');
+
+  /// Endpoint chat Qwen (AI base + `/api/chat`).
+  String get chatEndpoint => _resolveAiSuffix('/api/chat');
+
+  String _resolveAiSuffix(String suffix) {
     final base = aiServerUrl.trim();
     if (base.isEmpty) return '';
     if (base.contains('/')) {
       final uri = Uri.tryParse(base);
-      if (uri != null && uri.pathSegments.isNotEmpty) return base;
+      if (uri != null && uri.pathSegments.isNotEmpty) {
+        if (suffix == '/predict') return base;
+        if (base.endsWith('/predict')) {
+          return base.replaceFirst(RegExp(r'/predict$'), '/api/chat');
+        }
+        return base;
+      }
     }
-    final normalized = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
-    return '$normalized/predict';
+    final normalized =
+        base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+    return '$normalized$suffix';
   }
 
   Future<void> load() async {
@@ -68,7 +80,9 @@ class SettingsProvider extends ChangeNotifier {
         serverUrl = publicUrl;
         changed = true;
       }
-      if (aiUrl.isNotEmpty && aiUrl != aiServerUrl) {
+      if (aiUrl.isNotEmpty &&
+          aiUrl != aiServerUrl &&
+          !_isLocalDevAiUrl(aiServerUrl)) {
         aiServerUrl = aiUrl;
         changed = true;
       }
@@ -124,5 +138,14 @@ class SettingsProvider extends ChangeNotifier {
   void setAutoWater(bool value) {
     autoWater = value;
     notifyListeners();
+  }
+
+  /// Giữ URL AI local khi test (127.0.0.1 / emulator), không ghi đè từ VPS.
+  static bool _isLocalDevAiUrl(String url) {
+    final host = Uri.tryParse(url.trim())?.host.toLowerCase() ?? '';
+    return host == '127.0.0.1' ||
+        host == 'localhost' ||
+        host == '10.0.2.2' ||
+        host == '0.0.0.0';
   }
 }

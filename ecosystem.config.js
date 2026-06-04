@@ -35,6 +35,10 @@ module.exports = {
       env_production: {
         PYTHONUNBUFFERED: '1',
         TF_CPP_MIN_LOG_LEVEL: '2',
+        QWEN_CHAT_ENABLED: '1',
+        QWEN_PROVIDER: 'ollama',
+        OLLAMA_BASE_URL: 'http://127.0.0.1:11434',
+        QWEN_MODEL: 'qwen2.5:0.5b',
       },
     },
   ],

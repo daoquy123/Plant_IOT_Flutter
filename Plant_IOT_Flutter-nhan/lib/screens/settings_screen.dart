@@ -166,13 +166,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 22),
           const SectionLabel('Kết nối'),
           const SizedBox(height: 4),
-          _LabeledField(label: 'Server URL', controller: _serverUrl),
+          _LabeledField(
+            label: 'Server URL',
+            controller: _serverUrl,
+            onChanged: settings.setServerUrl,
+          ),
           const SizedBox(height: 14),
-          _LabeledField(label: 'API Key', controller: _apiKey),
+          _LabeledField(
+            label: 'API Key',
+            controller: _apiKey,
+            onChanged: settings.setApiKey,
+          ),
           const SizedBox(height: 14),
-          _LabeledField(label: 'URL Camera', controller: _cam),
+          _LabeledField(
+            label: 'URL Camera',
+            controller: _cam,
+            onChanged: settings.setCameraUrl,
+          ),
           const SizedBox(height: 14),
-          _LabeledField(label: 'URL AI Server', controller: _ai),
+          _LabeledField(
+            label: 'URL AI Server',
+            controller: _ai,
+            onChanged: settings.setAiServerUrl,
+            hintText: 'Local: http://127.0.0.1:8000 — bấm Lưu hoặc gõ là dùng ngay',
+          ),
         ],
       ),
     );
@@ -180,10 +197,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 class _LabeledField extends StatelessWidget {
-  const _LabeledField({required this.label, required this.controller});
+  const _LabeledField({
+    required this.label,
+    required this.controller,
+    this.onChanged,
+    this.hintText,
+  });
 
   final String label;
   final TextEditingController controller;
+  final ValueChanged<String>? onChanged;
+  final String? hintText;
 
   @override
   Widget build(BuildContext context) {
@@ -201,7 +225,8 @@ class _LabeledField extends StatelessWidget {
         const SizedBox(height: 8),
         TextField(
           controller: controller,
-          decoration: const InputDecoration(),
+          onChanged: onChanged,
+          decoration: InputDecoration(hintText: hintText),
         ),
       ],
     );

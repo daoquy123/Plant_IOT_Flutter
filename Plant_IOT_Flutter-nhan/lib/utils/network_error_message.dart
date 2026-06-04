@@ -33,5 +33,21 @@ String friendlyNetworkError(Object error, {String? serverUrl}) {
     return 'Server trả lỗi. Kiểm tra API key và trạng thái backend.';
   }
 
+  if (lower.contains('not found') ||
+      lower.contains('404') ||
+      lower.contains('/api/chat')) {
+    final host = serverUrl?.trim();
+    if (host != null && host.isNotEmpty) {
+      return 'API AI ($host) chưa có chat. Local: chạy run-local-ai.ps1. '
+          'VPS: bash deploy/deploy-ai.sh rồi thử lại.';
+    }
+    return 'API AI chưa có chức năng chat. Cập nhật server AI hoặc dùng http://127.0.0.1:8000 khi test local.';
+  }
+
+  if (lower.contains('connection refused') ||
+      lower.contains('actively refused')) {
+    return 'Không có API AI tại $serverUrl. Chạy scripts/run-local-ai.ps1 (local) hoặc kiểm tra VPS port 8000.';
+  }
+
   return 'Không tải được dữ liệu phân tích. Thử lại sau.';
 }
