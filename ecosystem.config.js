@@ -1,0 +1,41 @@
+module.exports = {
+  apps: [
+    {
+      name: 'plant-iot',
+      script: 'server/server.js',
+      cwd: __dirname + '/Plant_IOT_Flutter-nhan',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_restarts: 10,
+      merge_logs: true,
+      error_file: 'logs/pm2-iot-error.log',
+      out_file: 'logs/pm2-iot-out.log',
+      max_memory_restart: '250M',
+      env_production: {
+        NODE_ENV: 'production',
+        HOST: '0.0.0.0',
+        PORT: 3000,
+      },
+    },
+    {
+      name: 'plant-ai',
+      script: '.venv/bin/uvicorn',
+      args: 'app.main:app --host 0.0.0.0 --port 8000 --workers 1',
+      cwd: __dirname,
+      interpreter: 'none',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_restarts: 10,
+      merge_logs: true,
+      error_file: 'logs/pm2-ai-error.log',
+      out_file: 'logs/pm2-ai-out.log',
+      max_memory_restart: '1500M',
+      env_production: {
+        PYTHONUNBUFFERED: '1',
+        TF_CPP_MIN_LOG_LEVEL: '2',
+      },
+    },
+  ],
+};

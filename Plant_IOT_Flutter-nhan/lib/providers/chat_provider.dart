@@ -424,39 +424,31 @@ class ChatProvider extends ChangeNotifier {
     final rain = garden.rainPercent;
     final pumpCount = garden.waterTodayCount;
 
-    final tempScore = _scoreRange(t, min: 22, max: 32, best: 27);
-    final soilScore = _scoreRange(soil?.toDouble(), min: 45, max: 85, best: 65);
-    final humidScore = _scoreRange(humid, min: 45, max: 85, best: 65);
-    final rainPenalty = (rain != null && rain > 85) ? 6 : 0;
-    final pumpPenalty = pumpCount >= 8 ? 8 : (pumpCount >= 6 ? 4 : 0);
-
-    final baseScore =
-        ((tempScore * 0.35) + (soilScore * 0.4) + (humidScore * 0.25)).round();
-    final stabilityScore = (baseScore - rainPenalty - pumpPenalty).clamp(0, 100);
-
-    final days = switch (stabilityScore) {
-      >= 80 => '7-10 ngày',
-      >= 65 => '10-14 ngày',
-      >= 50 => '14-20 ngày',
-      _ => 'trên 20 ngày',
-    };
-    final risk = switch (stabilityScore) {
-      >= 80 => 'Thấp',
-      >= 65 => 'Trung bình',
-      _ => 'Cao',
-    };
-
+    const harvestTargetDays = 45;
     final cycle = garden.activeGrowingCycle;
-    final cycleLine = cycle != null && cycle.isActive
-        ? '- Ngày trồng (chu kỳ đang theo dõi): ngày thứ ${cycle.daysElapsed} (bắt đầu ${cycle.startedLabel})'
-        : '- Ngày trồng: chưa bắt đầu chu kỳ trên Điều khiển';
+    final hasCycle = cycle != null && cycle.isActive;
+    final harvestProgress = hasCycle
+        ? '${cycle.daysElapsed}/$harvestTargetDays'
+        : '—/$harvestTargetDays';
+    final daysUntilHarvest = hasCycle
+        ? (harvestTargetDays - cycle.daysElapsed).clamp(0, harvestTargetDays)
+        : null;
+    final forecastHarvestDate = hasCycle
+        ? DateTime(
+            cycle.startedAt.year,
+            cycle.startedAt.month,
+            cycle.startedAt.day,
+          ).add(Duration(days: harvestTargetDays - 1))
+        : null;
+    final forecastLine = forecastHarvestDate == null
+        ? 'Dự báo ngày thu hoạch: — (bắt đầu chu kỳ ở Điều khiển)'
+        : daysUntilHarvest == 0
+            ? 'Dự báo ngày thu hoạch: ${_formatDateVN(forecastHarvestDate)} (hôm nay)'
+            : 'Dự báo ngày thu hoạch: ${_formatDateVN(forecastHarvestDate)} (còn $daysUntilHarvest ngày)';
 
     return [
-      'Dự báo thu hoạch:',
-      cycleLine,
-      '- Điểm sinh trưởng hiện tại: $stabilityScore/100',
-      '- Thời gian thu hoạch ước tính: $days',
-      '- Mức rủi ro chậm phát triển: $risk',
+      'Tiến trình: $harvestProgress',
+      forecastLine,
       '',
       'Thông số phân tích:',
       '- Nhiệt độ: ${_fmt(t, 1)}°C (mục tiêu 22-32°C)',
@@ -464,10 +456,6 @@ class ChatProvider extends ChangeNotifier {
       '- Ẩm không khí: ${_fmt(humid, 0)}% (mục tiêu 45-85%)',
       '- Mưa: ${rain?.toString() ?? '—'}%',
       '- Số lần chạy bơm hôm nay: $pumpCount',
-      '',
-      'Khuyến nghị nhanh:',
-      '- Duy trì ẩm đất quanh 60-70%, tránh dao động lớn.',
-      '- Nếu mưa cao liên tục, giảm tưới tay để hạn chế úng rễ.',
     ].join('\n');
   }
 
@@ -478,40 +466,15 @@ class ChatProvider extends ChangeNotifier {
     final rain = garden.rainPercent;
     final pumpCount = garden.waterTodayCount;
 
-    final soilNeed = soil == null
-        ? 2
-        : soil < 40
-            ? 3
-            : soil < 50
-                ? 2
-                : soil < 65
-                    ? 1
-                    : 0;
-    final heatBoost = (t != null && t >= 33) ? 1 : 0;
-    final dryAirBoost = (humid != null && humid < 45) ? 1 : 0;
-    final rainReduce = (rain != null && rain >= 75) ? 2 : ((rain != null && rain >= 55) ? 1 : 0);
-
-    final suggestedCycles = (soilNeed + heatBoost + dryAirBoost - rainReduce).clamp(0, 4);
-    final nextSlot = switch (suggestedCycles) {
-      0 => 'Tạm hoãn 8-12 giờ',
-      1 => '1 lần vào sáng sớm',
-      2 => '2 lần: sáng sớm + chiều mát',
-      3 => '3 lần: sáng + trưa ngắn + chiều',
-      _ => '3-4 lần, chia ngắn theo chu kỳ',
-    };
-    final durationSec = switch (suggestedCycles) {
-      0 => 0,
-      1 => 10,
-      2 => 12,
-      3 => 15,
-      _ => 18,
-    };
+    const standardPerDay = 2;
+    var remainingToday = (standardPerDay - pumpCount).clamp(0, standardPerDay);
+    if (soil != null && soil >= 70) remainingToday = 0;
+    if (rain != null && rain >= 75) remainingToday = 0;
 
     return [
       'Gợi ý lịch tưới:',
-      '- Chu kỳ đề xuất hôm nay: $suggestedCycles lần',
-      '- Khung tưới: $nextSlot',
-      '- Thời lượng mỗi lần (gợi ý): ${durationSec}s',
+      '- Chu kỳ đề xuất hôm nay: $remainingToday',
+      'Lưu ý: Nên tưới vào sáng, chiều; hạn chế tưới lúc nắng gắt.',
       '',
       'Thông số phân tích:',
       '- Ẩm đất hiện tại: ${soil?.toString() ?? '—'}%',
@@ -519,39 +482,18 @@ class ChatProvider extends ChangeNotifier {
       '- Ẩm không khí: ${_fmt(humid, 0)}%',
       '- Mưa: ${rain?.toString() ?? '—'}%',
       '- Số lần chạy bơm hôm nay: $pumpCount',
-      '',
-      'Khuyến nghị vận hành:',
-      if (suggestedCycles == 0)
-        '- Đất đang đủ ẩm hoặc mưa cao, tạm dừng tưới để tránh úng.'
-      else
-        '- Sau mỗi lần tưới, chờ 10-15 phút rồi đọc lại ẩm đất để hiệu chỉnh.',
-      if (pumpCount >= 6)
-        '- Máy bơm chạy nhiều, kiểm tra rò rỉ/thoát nước để tránh lãng phí.'
-      else
-        '- Theo dõi mốc ẩm đất 55-65% để giữ ổn định cho cây.',
     ].join('\n');
-  }
-
-  int _scoreRange(
-    double? value, {
-    required double min,
-    required double max,
-    required double best,
-  }) {
-    if (value == null) return 50;
-    if (value < min) {
-      return (100 - ((min - value) * 5)).clamp(0, 100).round();
-    }
-    if (value > max) {
-      return (100 - ((value - max) * 5)).clamp(0, 100).round();
-    }
-    final distance = (value - best).abs();
-    return (100 - distance * 3).clamp(0, 100).round();
   }
 
   String _fmt(double? value, int decimals) {
     if (value == null) return '—';
     return value.toStringAsFixed(decimals);
+  }
+
+  String _formatDateVN(DateTime date) {
+    final d = date.day.toString().padLeft(2, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    return '$d/$m/${date.year}';
   }
 
   String _cacheBustUrl(String url) {

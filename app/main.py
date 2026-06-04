@@ -1,23 +1,45 @@
-from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from ml.predictor import get_predictor
+from app.ml.predictor import get_predictor
+
+_APP_ROOT = Path(__file__).resolve().parent
 
 app = FastAPI(title="Leaf Health AI - VGG16 + CBAM")
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+_static_dir = _APP_ROOT / "static"
+_templates_dir = _APP_ROOT / "templates"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+templates = (
+    Jinja2Templates(directory=str(_templates_dir)) if _templates_dir.is_dir() else None
+)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    if templates is None:
+        return HTMLResponse(
+            "<h1>Plant AI API</h1><p>POST /predict hoặc /api/predict với file ảnh.</p>",
+            status_code=200,
+        )
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-@app.post("/api/predict")
-async def api_predict(file: UploadFile = File(...), model: str = Form("vgg16")):
+async def _predict_image(file: UploadFile, model: str) -> JSONResponse:
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Vui lòng tải lên một file ảnh hợp lệ.")
 
@@ -40,13 +62,24 @@ async def api_predict(file: UploadFile = File(...), model: str = Form("vgg16")):
     )
 
 
+@app.post("/api/predict")
+async def api_predict(file: UploadFile = File(...), model: str = Form("vgg16")):
+    return await _predict_image(file, model)
+
+
+@app.post("/predict")
+async def predict_flutter(file: UploadFile = File(...), model: str = Form("vgg16")):
+    """Alias cho Flutter app (Settings → URL AI Server = http://IP:8000)."""
+    return await _predict_image(file, model)
+
+
 @app.get("/api/health")
+@app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "plant-ai"}
 
 
 if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
-

@@ -13,6 +13,10 @@ curl -fsSL -o "$SERVER/services/growingCycleService.js" \
   "$REPO_BASE/server/services/growingCycleService.js"
 curl -fsSL -o "$SERVER/src/routes/growing_cycles.js" \
   "$REPO_BASE/server/src/routes/growing_cycles.js"
+curl -fsSL -o "$SERVER/src/routes/config.js" \
+  "$REPO_BASE/server/src/routes/config.js"
+curl -fsSL -o "$SERVER/server.js" "$REPO_BASE/server/server.js"
+curl -fsSL -o "$SERVER/config/database.js" "$REPO_BASE/server/config/database.js"
 
 if ! grep -q "growing_cycles" "$SERVER/server.js"; then
   sed -i "/const configRoutes = require/a const growingCycleRoutes = require('./src/routes/growing_cycles');" "$SERVER/server.js"
