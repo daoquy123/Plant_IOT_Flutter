@@ -16,7 +16,9 @@ class ControlScreen extends StatefulWidget {
 
 class _ControlScreenState extends State<ControlScreen> {
   int shadeCooldown = 0;
+  int pumpSessionLeft = 0;
   Timer? _timer;
+  Timer? _pumpTimer;
   DateTime _plantStartDate = DateTime.now();
 
   String _formatDate(DateTime d) {
@@ -55,6 +57,32 @@ class _ControlScreenState extends State<ControlScreen> {
     });
   }
 
+  void startPumpSessionCountdown([int seconds = 60]) {
+    setState(() => pumpSessionLeft = seconds);
+
+    _pumpTimer?.cancel();
+    _pumpTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (pumpSessionLeft <= 1) {
+        timer.cancel();
+        setState(() => pumpSessionLeft = 0);
+        await context.read<GardenProvider>().completePumpSession();
+      } else {
+        setState(() => pumpSessionLeft -= 1);
+      }
+    });
+  }
+
+  void cancelPumpSessionCountdown() {
+    _pumpTimer?.cancel();
+    if (pumpSessionLeft > 0) {
+      setState(() => pumpSessionLeft = 0);
+    }
+  }
+
   Future<bool> showConfirm(BuildContext context, String message) async {
     return await showDialog(
           context: context,
@@ -79,6 +107,7 @@ class _ControlScreenState extends State<ControlScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _pumpTimer?.cancel();
     super.dispose();
   }
 
@@ -212,26 +241,42 @@ class _ControlScreenState extends State<ControlScreen> {
 
                 const SizedBox(height: 12),
 
-                /// 💧 MÁY BƠM
+                /// 💧 MÁY BƠM — một phiên 60s, hết phiên mới bật lại
                 _ControlRow(
                   label: 'Máy bơm',
-                  on: garden.pumpDisplayOn,
-                  busy: garden.iotBusy,
-                  subtitle:
-                      'Trạng thái: ${garden.pumpDisplayOn ? 'Đang bật' : 'Đang tắt'}',
-                  onLabel: 'Tắt',
-                  offLabel: 'Bật',
+                  on: pumpSessionLeft > 0,
+                  busy: garden.iotBusy || pumpSessionLeft > 0,
+                  subtitle: pumpSessionLeft > 0
+                      ? 'Đang tưới — còn ${pumpSessionLeft}s'
+                      : 'Sẵn sàng — mỗi phiên 60 giây',
+                  onLabel: '${pumpSessionLeft}s',
+                  offLabel: pumpSessionLeft > 0
+                      ? '${pumpSessionLeft}s'
+                      : 'Bật',
                   onPressed: () async {
+                    if (pumpSessionLeft > 0) return;
                     final gardenProvider = context.read<GardenProvider>();
                     final confirm = await showConfirm(
                       context,
-                      garden.pumpDisplayOn
-                          ? "Bạn có muốn Bật máy bơm?"
-                          : "Bạn có muốn Tắt máy bơm?",
+                      'Bắt đầu phiên tưới 60 giây?',
                     );
 
-                    if (!confirm) return;
-                    gardenProvider.togglePump();
+                    if (!confirm || !context.mounted) return;
+
+                    // Đếm ngược ngay (giống màn che) — không chờ API.
+                    startPumpSessionCountdown();
+
+                    final ok = await gardenProvider.startPumpSession();
+                    if (!context.mounted) return;
+                    if (!ok) {
+                      cancelPumpSessionCountdown();
+                      await gardenProvider.completePumpSession(cancelled: true);
+                      if (gardenProvider.lastError != null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(gardenProvider.lastError!)),
+                        );
+                      }
+                    }
                   },
                 ),
 
@@ -299,8 +344,8 @@ class _ControlScreenState extends State<ControlScreen> {
             ),
           ),
 
-          /// ⏳ LOADING OVERLAY
-          if (garden.iotBusy || cycleBusy)
+          /// ⏳ LOADING OVERLAY — không che khi đang đếm phiên bơm
+          if ((garden.iotBusy && pumpSessionLeft == 0) || cycleBusy)
             Positioned.fill(
               child: ColoredBox(
                 color: scheme.surface

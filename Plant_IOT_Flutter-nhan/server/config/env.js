@@ -46,8 +46,23 @@ const config = {
   DEFAULT_FROM_EMAIL: (process.env.DEFAULT_FROM_EMAIL || process.env.EMAIL_HOST_USER || '').trim(),
   REPORT_EMAIL_TO: (process.env.REPORT_EMAIL_TO || process.env.EMAIL_HOST_USER || '').trim(),
   EMAIL_REPORTS_ENABLED: (process.env.EMAIL_REPORTS_ENABLED || 'true').toLowerCase() !== 'false',
-  /** Seconds pump stays on during auto-water cycle (then pump_off). */
-  AUTO_WATER_PUMP_SECONDS: Number(process.env.AUTO_WATER_PUMP_SECONDS || 60),
+  /** Seconds per pump work session (manual control & auto-water). */
+  PUMP_SESSION_SECONDS: Number(
+    process.env.PUMP_SESSION_SECONDS || process.env.AUTO_WATER_PUMP_SECONDS || 60,
+  ),
+  /** Seconds pump stays on during auto-water cycle (alias of session length). */
+  AUTO_WATER_PUMP_SECONDS: Number(
+    process.env.AUTO_WATER_PUMP_SECONDS || process.env.PUMP_SESSION_SECONDS || 60,
+  ),
+  /** Sensor alert thresholds (email when out of range, max 1/hour). */
+  SENSOR_ALERT_TEMP_MIN: Number(process.env.SENSOR_ALERT_TEMP_MIN || 22),
+  SENSOR_ALERT_TEMP_MAX: Number(process.env.SENSOR_ALERT_TEMP_MAX || 32),
+  SENSOR_ALERT_SOIL_MIN: Number(process.env.SENSOR_ALERT_SOIL_MIN || 45),
+  SENSOR_ALERT_SOIL_MAX: Number(process.env.SENSOR_ALERT_SOIL_MAX || 85),
+  SENSOR_ALERT_RAIN_MIN: Number(process.env.SENSOR_ALERT_RAIN_MIN || 10),
+  SENSOR_ALERT_RAIN_MAX: Number(process.env.SENSOR_ALERT_RAIN_MAX || 85),
+  SENSOR_ALERT_HUMIDITY_MIN: Number(process.env.SENSOR_ALERT_HUMIDITY_MIN || 45),
+  SENSOR_ALERT_HUMIDITY_MAX: Number(process.env.SENSOR_ALERT_HUMIDITY_MAX || 85),
 };
 
 function validateEnv() {

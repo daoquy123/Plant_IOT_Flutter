@@ -176,8 +176,13 @@ class GardenProvider extends ChangeNotifier {
   bool cameraStreamActive = false;
 
   bool shadeOn = false;
-  bool pumpOn = true;
+  bool pumpOn = false;
+  bool _manualPumpSessionActive = false;
+  bool _legacyPumpOffPending = false;
   int waterTodayCount = 0;
+  /// Tăng mỗi khi đồng bộ lại số lần bơm — Biểu đồ listen để reload.
+  int pumpStatsRevision = 0;
+  Timer? _pumpStatsRefreshTimer;
 
   GrowingCycle? activeGrowingCycle;
   bool cycleBusy = false;
@@ -185,7 +190,9 @@ class GardenProvider extends ChangeNotifier {
   bool iotBusy = false;
   String? lastError;
 
-  bool get pumpDisplayOn => pumpOn;
+  bool get manualPumpSessionActive => _manualPumpSessionActive;
+  bool get pumpInSession => _manualPumpSessionActive;
+  bool get pumpDisplayOn => _manualPumpSessionActive;
 
   List<SensorDisplay> get sensorTiles => [
         SensorDisplay(
@@ -284,13 +291,16 @@ class GardenProvider extends ChangeNotifier {
       }
     });
     socket.on('relay', (data) {
-      if (iotBusy) return; // 🔥 CHẶN socket khi đang bấm nút
-
+      if (iotBusy) return;
       final map = _coerceMap(data);
       if (map == null) return;
 
       final rows = map['relay_status'];
-      _applyRelayStatusRows(rows);
+      // Tưới tự động (pump_on → chờ → pump_off) không đè nút bơm thủ công.
+      _applyRelayStatusRows(rows, ignorePumpIfTriggeredBy: 'auto_water');
+      if (_relayStatusIncludesPumpTrigger(rows, 'auto_water')) {
+        _schedulePumpStatsRefresh();
+      }
     });
     socket.on('camera', (data) {
       final map = _coerceMap(data);
@@ -397,8 +407,25 @@ class GardenProvider extends ChangeNotifier {
     return null;
   }
 
-  void _applyRelayStatusRows(dynamic rows) {
+  bool _relayStatusIncludesPumpTrigger(dynamic rows, String triggeredBy) {
+    if (rows is! List) return false;
+    for (final item in rows) {
+      if (item is! Map) continue;
+      final m = Map<String, dynamic>.from(item);
+      final id = m['relay_id'];
+      final rid = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (rid != kRelayIdPump) continue;
+      if (m['triggered_by']?.toString() == triggeredBy) return true;
+    }
+    return false;
+  }
+
+  void _applyRelayStatusRows(
+    dynamic rows, {
+    String? ignorePumpIfTriggeredBy,
+  }) {
     if (rows is! List) return;
+    var changed = false;
     for (final item in rows) {
       if (item is! Map) continue;
       final m = Map<String, dynamic>.from(item);
@@ -407,12 +434,25 @@ class GardenProvider extends ChangeNotifier {
       if (st == null) continue;
       final rid = id is int ? id : int.tryParse(id?.toString() ?? '');
       if (rid == kRelayIdShade) {
-        shadeOn = st;
+        if (shadeOn != st) {
+          shadeOn = st;
+          changed = true;
+        }
       } else if (rid == kRelayIdPump) {
-        pumpOn = st;
+        final trigger = m['triggered_by']?.toString() ?? '';
+        if (ignorePumpIfTriggeredBy != null && trigger == ignorePumpIfTriggeredBy) {
+          continue;
+        }
+        if (_manualPumpSessionActive) {
+          continue;
+        }
+        if (pumpOn != st) {
+          pumpOn = st;
+          changed = true;
+        }
       }
     }
-    notifyListeners();
+    if (changed) notifyListeners();
   }
 
   bool? _asBool(dynamic value) {
@@ -450,6 +490,14 @@ class GardenProvider extends ChangeNotifier {
     return '$d/$m';
   }
 
+  /// Debounce — gọi sau phiên bơm (tự động / socket).
+  void _schedulePumpStatsRefresh() {
+    _pumpStatsRefreshTimer?.cancel();
+    _pumpStatsRefreshTimer = Timer(const Duration(milliseconds: 800), () {
+      unawaited(refreshWaterTodayCount());
+    });
+  }
+
   /// Đồng bộ số lần bơm hôm nay từ `pump_runs` trên server (giống tab Biểu đồ).
   Future<void> refreshWaterTodayCount() async {
     final base = _settings?.serverUrl.trim() ?? '';
@@ -465,18 +513,28 @@ class GardenProvider extends ChangeNotifier {
       final rows = map['buckets'];
       if (rows is! List) return;
       final today = vnTodayLabel();
+      var newCount = 0;
+      var found = false;
       for (final raw in rows) {
         if (raw is! Map) continue;
         final row = Map<String, dynamic>.from(raw);
         if (row['label']?.toString() != today) continue;
+        found = true;
         final count = row['pump_count'];
         if (count is num) {
-          waterTodayCount = count.round();
+          newCount = count.round();
         } else {
-          waterTodayCount = int.tryParse(count?.toString() ?? '') ?? 0;
+          newCount = int.tryParse(count?.toString() ?? '') ?? 0;
         }
+        break;
+      }
+      if (!found) {
+        newCount = 0;
+      }
+      if (newCount != waterTodayCount) {
+        waterTodayCount = newCount;
+        pumpStatsRevision += 1;
         notifyListeners();
-        return;
       }
     } catch (_) {
       // Giữ giá trị local nếu API lỗi.
@@ -514,7 +572,9 @@ class GardenProvider extends ChangeNotifier {
       if (countWater && nextPump && !wasOn) {
         waterTodayCount += 1;
       }
-      pumpOn = nextPump;
+      if (!_manualPumpSessionActive && !nextPump) {
+        pumpOn = nextPump;
+      }
     }
     if (nextCover != null) {
       shadeOn = nextCover;
@@ -960,52 +1020,107 @@ class GardenProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> togglePump() async {
+  void _resetManualPumpSessionFlags() {
+    _manualPumpSessionActive = false;
+    _legacyPumpOffPending = false;
+    pumpOn = false;
+  }
+
+  Future<void> _sendPumpOffIfNeeded() async {
+    if (!_legacyPumpOffPending) return;
+    _legacyPumpOffPending = false;
+
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) return;
+
+    try {
+      await _esp32.postAction(
+        serverBase: base,
+        apiKey: apiKey,
+        action: 'pump_off',
+      );
+    } catch (_) {
+      // Server pump_start path tự tắt — bỏ qua lỗi pump_off legacy.
+    }
+  }
+
+  /// Gọi khi hết 60s trên UI hoặc hủy phiên.
+  Future<void> completePumpSession({bool cancelled = false}) async {
+    if (!_manualPumpSessionActive && !_legacyPumpOffPending) return;
+
+    _resetManualPumpSessionFlags();
+    notifyListeners();
+
+    if (!cancelled) {
+      await _sendPumpOffIfNeeded();
+      await refreshWaterTodayCount();
+    }
+  }
+
+  /// Bắt đầu phiên tưới trên server (UI đếm ngược riêng ở ControlScreen).
+  Future<bool> startPumpSession() async {
     final base = _settings?.serverUrl ?? '';
     final apiKey = _settings?.apiKey ?? '';
     if (base.isEmpty || apiKey.isEmpty) {
       lastError = 'Thiếu URL server IoT hoặc API key';
       notifyListeners();
-      return;
+      return false;
     }
-    final previousPump = pumpOn;
-    final next = !pumpOn;
-    pumpOn = next;
-    iotBusy = true;
+    if (_manualPumpSessionActive) return false;
+
+    _manualPumpSessionActive = true;
+    pumpOn = true;
     lastError = null;
     notifyListeners();
+
     try {
-      final map = await _esp32.postAction(
+      await _esp32.postAction(
         serverBase: base,
         apiKey: apiKey,
-        action: next ? 'pump_on' : 'pump_off',
+        action: 'pump_start',
       );
-      final command = _coerceMap(map['command']);
-      if (command != null) {
-        _applyCommandPayload(
-          command,
-          countWater: true,
-          pumpWasOnBefore: previousPump,
-          emit: false,
-        );
+      unawaited(refreshWaterTodayCount());
+      return true;
+    } on Esp32HttpException catch (e) {
+      if (e.statusCode == 409) {
+        _resetManualPumpSessionFlags();
+        lastError = 'Máy bơm đang trong phiên tưới. Vui lòng đợi hết phiên.';
+        notifyListeners();
+        return false;
       }
-      _applyRelayStatusRows(map['relay_status']);
-      final sensor = _coerceMap(map['sensor']);
-      if (sensor != null) {
-        applyEspPayload(sensor);
+      if (e.statusCode == 400 || e.statusCode == 404) {
+        try {
+          await _esp32.postAction(
+            serverBase: base,
+            apiKey: apiKey,
+            action: 'pump_on',
+          );
+          _legacyPumpOffPending = true;
+          unawaited(refreshWaterTodayCount());
+          return true;
+        } catch (e2) {
+          _resetManualPumpSessionFlags();
+          lastError = e2.toString();
+          notifyListeners();
+          return false;
+        }
       }
-      await refreshWaterTodayCount();
-    } catch (e) {
-      pumpOn = previousPump;
+      _resetManualPumpSessionFlags();
       lastError = e.toString();
-    } finally {
-      iotBusy = false;
       notifyListeners();
+      return false;
+    } catch (e) {
+      _resetManualPumpSessionFlags();
+      lastError = e.toString();
+      notifyListeners();
+      return false;
     }
   }
 
   @override
   void dispose() {
+    _pumpStatsRefreshTimer?.cancel();
     _stopCameraStreamWatchdog();
     _socket?.disconnect();
     _socket?.dispose();

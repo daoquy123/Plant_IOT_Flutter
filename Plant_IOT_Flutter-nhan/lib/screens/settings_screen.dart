@@ -20,9 +20,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final SettingsProvider _settings;
   late final VoidCallback _hydrateListener;
   bool _hydrated = false;
-  bool _emailTestBusy = false;
-  bool _waterTestBusy = false;
-
   @override
   void initState() {
     super.initState();
@@ -147,101 +144,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SectionLabel('Tự động hóa'),
           AppCard(
             padding: EdgeInsets.zero,
-            child: SwitchListTile(
-              title: Text(
-                'Tưới tự động',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              subtitle: Text(
-                'Server tưới lúc 6:00 sáng và 17:00 chiều (giờ VN) khi bật',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurface.withValues(alpha: 0.52),
-                      height: 1.4,
-                    ),
-              ),
-              value: settings.autoWater,
-              onChanged: (value) async {
-                await settings.setAutoWater(value);
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      value
-                          ? 'Đã bật tưới tự động trên server'
-                          : 'Đã tắt tưới tự động',
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 12),
-          AppCard(
-            padding: EdgeInsets.zero,
             child: Column(
               children: [
-                ListTile(
-                  leading: Icon(Icons.water_drop_outlined, color: scheme.primary),
-                  title: const Text('Thử tưới tự động ngay'),
-                  subtitle: const Text(
-                    'Bật/tắt bơm qua server (~60s) + email thông báo',
+                SwitchListTile(
+                  title: Text(
+                    'Tưới tự động',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
-                  trailing: _waterTestBusy
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.play_arrow_rounded),
-                  onTap: _waterTestBusy
-                      ? null
-                      : () async {
-                          setState(() => _waterTestBusy = true);
-                          final err = await settings.testAutoWater();
-                          if (!context.mounted) return;
-                          setState(() => _waterTestBusy = false);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                err == null
-                                    ? 'Đã gửi lệnh — bơm chạy ~60s, kiểm tra Gmail'
-                                    : err,
-                              ),
-                            ),
-                          );
-                        },
+                  subtitle: Text(
+                    'Server tưới lúc 6:00 sáng và 17:00 chiều (giờ VN) khi bật',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.52),
+                          height: 1.4,
+                        ),
+                  ),
+                  value: settings.autoWater,
+                  onChanged: (value) async {
+                    await settings.setAutoWater(value);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          value
+                              ? 'Đã bật tưới tự động trên server'
+                              : 'Đã tắt tưới tự động',
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 const Divider(height: 1),
-                ListTile(
-                  leading: Icon(Icons.email_outlined, color: scheme.primary),
-                  title: const Text('Gửi thử email báo cáo'),
-                  subtitle: const Text('Báo cáo cảm biến + số lần bơm hôm nay'),
-                  trailing: _emailTestBusy
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send_outlined),
-                  onTap: _emailTestBusy
-                      ? null
-                      : () async {
-                          setState(() => _emailTestBusy = true);
-                          final err = await settings.testEmailReport();
-                          if (!context.mounted) return;
-                          setState(() => _emailTestBusy = false);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                err == null
-                                    ? 'Đã gửi lệnh email — kiểm tra hộp thư'
-                                    : err,
-                              ),
-                            ),
-                          );
-                        },
+                SwitchListTile(
+                  title: Text(
+                    'Cảnh báo thông số',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  subtitle: Text(
+                    'Email khi thông số vượt hoặc dưới ngưỡng (tối đa 1 lần/giờ)',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.52),
+                          height: 1.4,
+                        ),
+                  ),
+                  value: settings.sensorAlert,
+                  onChanged: (value) async {
+                    await settings.setSensorAlert(value);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          value
+                              ? 'Đã bật cảnh báo thông số qua email'
+                              : 'Đã tắt cảnh báo thông số',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  title: Text(
+                    'Thông báo khi có sâu',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  subtitle: Text(
+                    'ResNet kiểm tra ảnh camera mỗi giờ — email nếu phát hiện sâu (không có ảnh thì bỏ qua)',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurface.withValues(alpha: 0.52),
+                          height: 1.4,
+                        ),
+                  ),
+                  value: settings.pestAlert,
+                  onChanged: (value) async {
+                    await settings.setPestAlert(value);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          value
+                              ? 'Đã bật thông báo sâu bệnh'
+                              : 'Đã tắt thông báo sâu bệnh',
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

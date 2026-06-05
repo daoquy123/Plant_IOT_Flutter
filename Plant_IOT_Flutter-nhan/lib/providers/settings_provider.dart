@@ -21,6 +21,8 @@ class SettingsProvider extends ChangeNotifier {
   String cameraUrl = '';
   String aiServerUrl = '';
   bool autoWater = false;
+  bool sensorAlert = true;
+  bool pestAlert = false;
 
   bool _loaded = false;
   bool get isLoaded => _loaded;
@@ -48,8 +50,12 @@ class SettingsProvider extends ChangeNotifier {
     cameraUrl = map[PreferenceKeys.cameraUrl] as String? ?? '';
     aiServerUrl = map[PreferenceKeys.aiServerUrl] as String? ?? '';
     autoWater = map[PreferenceKeys.autoWater] as bool? ?? false;
+    sensorAlert = map[PreferenceKeys.sensorAlert] as bool? ?? true;
+    pestAlert = map[PreferenceKeys.pestAlert] as bool? ?? false;
     await _syncFromServerEnv();
     await _syncAutoWaterFromServer();
+    await _syncSensorAlertFromServer();
+    await _syncPestAlertFromServer();
     _loaded = true;
     notifyListeners();
   }
@@ -111,9 +117,41 @@ class SettingsProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _syncSensorAlertFromServer() async {
+    final key = apiKey.trim();
+    if (key.isEmpty) return;
+    try {
+      final enabled = await _esp32.fetchSensorAlertEnabled(
+        serverBase: _serverBase,
+        apiKey: key,
+      );
+      if (enabled != sensorAlert) {
+        sensorAlert = enabled;
+        await _persistLocal();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _syncPestAlertFromServer() async {
+    final key = apiKey.trim();
+    if (key.isEmpty) return;
+    try {
+      final enabled = await _esp32.fetchPestAlertEnabled(
+        serverBase: _serverBase,
+        apiKey: key,
+      );
+      if (enabled != pestAlert) {
+        pestAlert = enabled;
+        await _persistLocal();
+      }
+    } catch (_) {}
+  }
+
   Future<void> saveAll() async {
     await _persistLocal();
     await _pushAutoWaterToServer();
+    await _pushSensorAlertToServer();
+    await _pushPestAlertToServer();
     notifyListeners();
   }
 
@@ -124,6 +162,28 @@ class SettingsProvider extends ChangeNotifier {
       cameraUrl: cameraUrl.trim(),
       aiServerUrl: aiServerUrl.trim(),
       autoWater: autoWater,
+      sensorAlert: sensorAlert,
+      pestAlert: pestAlert,
+    );
+  }
+
+  Future<void> _pushSensorAlertToServer() async {
+    final key = apiKey.trim();
+    if (key.isEmpty) return;
+    await _esp32.updateSensorAlertEnabled(
+      serverBase: _serverBase,
+      apiKey: key,
+      enabled: sensorAlert,
+    );
+  }
+
+  Future<void> _pushPestAlertToServer() async {
+    final key = apiKey.trim();
+    if (key.isEmpty) return;
+    await _esp32.updatePestAlertEnabled(
+      serverBase: _serverBase,
+      apiKey: key,
+      enabled: pestAlert,
     );
   }
 
@@ -154,26 +214,34 @@ class SettingsProvider extends ChangeNotifier {
     }
   }
 
-  Future<String?> testEmailReport() async {
+  Future<void> setSensorAlert(bool value) async {
+    sensorAlert = value;
+    notifyListeners();
+    await _persistLocal();
     final key = apiKey.trim();
-    if (key.isEmpty) return 'Thiếu API key';
+    if (key.isEmpty) return;
     try {
-      await _esp32.testEmailReport(serverBase: _serverBase, apiKey: key);
-      return null;
-    } catch (e) {
-      return e.toString();
-    }
+      await _esp32.updateSensorAlertEnabled(
+        serverBase: _serverBase,
+        apiKey: key,
+        enabled: value,
+      );
+    } catch (_) {}
   }
 
-  Future<String?> testAutoWater() async {
+  Future<void> setPestAlert(bool value) async {
+    pestAlert = value;
+    notifyListeners();
+    await _persistLocal();
     final key = apiKey.trim();
-    if (key.isEmpty) return 'Thiếu API key';
+    if (key.isEmpty) return;
     try {
-      await _esp32.testAutoWater(serverBase: _serverBase, apiKey: key);
-      return null;
-    } catch (e) {
-      return e.toString();
-    }
+      await _esp32.updatePestAlertEnabled(
+        serverBase: _serverBase,
+        apiKey: key,
+        enabled: value,
+      );
+    } catch (_) {}
   }
 
   void setServerUrl(String value) {

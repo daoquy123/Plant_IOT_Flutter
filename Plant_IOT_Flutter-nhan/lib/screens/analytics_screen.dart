@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../config/server_defaults.dart';
 import '../providers/analytics_provider.dart';
+import '../providers/garden_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/network_error_message.dart';
 import '../widgets/app_card.dart';
@@ -63,8 +64,52 @@ class _AnalyticsBody extends StatefulWidget {
 
 class _AnalyticsBodyState extends State<_AnalyticsBody> {
   int _retryToken = 0;
+  Future<ChartSeries>? _seriesFuture;
+  AnalyticsRange? _cachedRange;
+  int _lastPumpRevision = -1;
+  GardenProvider? _garden;
 
-  void _retry() => setState(() => _retryToken += 1);
+  void _reloadSeries() {
+    final analytics = context.read<AnalyticsProvider>();
+    _cachedRange = analytics.range;
+    _seriesFuture = analytics.loadSeries();
+  }
+
+  void _retry() {
+    setState(() {
+      _retryToken += 1;
+      _reloadSeries();
+    });
+  }
+
+  void _onGardenChanged() {
+    final rev = _garden?.pumpStatsRevision ?? 0;
+    if (rev == _lastPumpRevision) return;
+    _lastPumpRevision = rev;
+    if (!mounted) return;
+    setState(_reloadSeries);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final garden = context.read<GardenProvider>();
+    if (_garden != garden) {
+      _garden?.removeListener(_onGardenChanged);
+      _garden = garden;
+      _lastPumpRevision = garden.pumpStatsRevision;
+      garden.addListener(_onGardenChanged);
+    }
+    if (_seriesFuture == null) {
+      _reloadSeries();
+    }
+  }
+
+  @override
+  void dispose() {
+    _garden?.removeListener(_onGardenChanged);
+    super.dispose();
+  }
 
   String _serverUrl(SettingsProvider settings) {
     final saved = settings.serverUrl.trim();
@@ -78,9 +123,13 @@ class _AnalyticsBodyState extends State<_AnalyticsBody> {
     final scheme = Theme.of(context).colorScheme;
     final serverUrl = _serverUrl(settings);
 
+    if (_cachedRange != analytics.range) {
+      _reloadSeries();
+    }
+
     return FutureBuilder<ChartSeries>(
       key: ValueKey('${analytics.range}-$_retryToken'),
-      future: analytics.loadSeries(),
+      future: _seriesFuture,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
@@ -104,8 +153,8 @@ class _AnalyticsBodyState extends State<_AnalyticsBody> {
         }
         return RefreshIndicator(
           onRefresh: () async {
-            setState(() => _retryToken += 1);
-            await analytics.loadSeries();
+            _retry();
+            await _seriesFuture;
           },
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),

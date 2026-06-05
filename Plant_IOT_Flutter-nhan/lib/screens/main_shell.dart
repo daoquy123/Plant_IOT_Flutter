@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../providers/garden_provider.dart';
 import 'analytics_screen.dart';
 import 'chat_screen.dart';
 import 'control_screen.dart';
@@ -33,7 +35,12 @@ class _MainShellState extends State<MainShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: (i) {
+          setState(() => _index = i);
+          if (i == 3) {
+            context.read<GardenProvider>().refreshWaterTodayCount();
+          }
+        },
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         animationDuration: Duration.zero,
         destinations: const [

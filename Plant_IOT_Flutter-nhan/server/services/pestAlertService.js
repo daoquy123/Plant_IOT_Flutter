@@ -1,0 +1,220 @@
+const fs = require('fs');
+const path = require('path');
+const { Blob } = require('buffer');
+const { config } = require('../config/env');
+const { getLatestImage, getLatestFrame } = require('./cameraService');
+const { sendMail, isEmailConfigured } = require('./emailService');
+const {
+  getPestAlertEnabledAsync,
+  getSettingAsync,
+  setSettingAsync,
+} = require('./settingsService');
+
+const LAST_SENT_KEY = 'pest_alert_last_sent';
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const PEST_MODEL = 'resnet';
+
+/** Nhãn lớp sâu — khớp app/ml/labels.py */
+const PEST_CLASS_LABELS = new Set(['la_sau', 'sau']);
+
+function getLatestImageAsync() {
+  return new Promise((resolve, reject) => {
+    getLatestImage((err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+}
+
+function resolvePredictUrl() {
+  const raw = (config.AI_SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!raw) return null;
+  if (raw.includes('/predict')) return raw;
+  return `${raw}/predict`;
+}
+
+function isPestPrediction(result) {
+  if (!result || typeof result !== 'object') return false;
+  const label = (
+    result.label
+    ?? result.prediction
+    ?? result.class
+    ?? result.disease
+  );
+  if (label == null) return false;
+  const normalized = String(label).trim().toLowerCase();
+  return PEST_CLASS_LABELS.has(normalized);
+}
+
+function formatConfidence(result) {
+  const conf = result.confidence ?? result.probability ?? result.score ?? result.prob;
+  if (typeof conf !== 'number' || Number.isNaN(conf)) return null;
+  const pct = conf <= 1 ? Math.round(conf * 100) : Math.round(conf);
+  return `${pct}%`;
+}
+
+async function loadLatestCameraImageBytes() {
+  const row = await getLatestImageAsync();
+  if (row?.filepath && fs.existsSync(row.filepath)) {
+    return {
+      bytes: fs.readFileSync(row.filepath),
+      filename: row.filename || path.basename(row.filepath),
+      source: 'camera_images',
+      capturedAt: row.captured_at,
+      publicUrl: row.public_url,
+    };
+  }
+
+  const frame = getLatestFrame();
+  if (frame && Buffer.isBuffer(frame) && frame.length > 0) {
+    return {
+      bytes: frame,
+      filename: `stream_frame_${Date.now()}.jpg`,
+      source: 'live_frame',
+      capturedAt: new Date().toISOString(),
+      publicUrl: null,
+    };
+  }
+
+  return null;
+}
+
+async function predictWithResNet(imageBytes, filename) {
+  const predictUrl = resolvePredictUrl();
+  if (!predictUrl) {
+    throw new Error('AI_SERVER_URL chưa cấu hình');
+  }
+
+  const form = new FormData();
+  form.append('file', new Blob([imageBytes]), filename || 'camera.jpg');
+  form.append('model', PEST_MODEL);
+
+  const response = await fetch(predictUrl, {
+    method: 'POST',
+    body: form,
+    signal: AbortSignal.timeout(120000),
+  });
+
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(`AI predict HTTP ${response.status}: ${raw.slice(0, 200)}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('AI server không trả JSON hợp lệ');
+  }
+
+  const result = parsed?.result && typeof parsed.result === 'object'
+    ? parsed.result
+    : parsed;
+
+  return { raw: parsed, result };
+}
+
+async function getLastPestAlertSentAt() {
+  const raw = await getSettingAsync(LAST_SENT_KEY);
+  if (!raw) return null;
+  const ts = Date.parse(raw);
+  return Number.isFinite(ts) ? ts : null;
+}
+
+async function markPestAlertSent() {
+  await setSettingAsync(LAST_SENT_KEY, new Date().toISOString());
+}
+
+/**
+ * Mỗi giờ: lấy ảnh camera mới nhất → ResNet → email nếu lớp sâu.
+ * Không có ảnh thì bỏ qua. Tối đa 1 email/giờ.
+ */
+async function checkAndSendPestAlert({ force = false } = {}) {
+  const enabled = await getPestAlertEnabledAsync();
+  if (!enabled && !force) {
+    return { skipped: true, reason: 'disabled' };
+  }
+
+  if (!isEmailConfigured()) {
+    return { skipped: true, reason: 'email_not_configured' };
+  }
+
+  const lastSent = await getLastPestAlertSentAt();
+  if (!force && lastSent != null && Date.now() - lastSent < ONE_HOUR_MS) {
+    return { skipped: true, reason: 'rate_limited' };
+  }
+
+  const image = await loadLatestCameraImageBytes();
+  if (!image) {
+    return { skipped: true, reason: 'no_image' };
+  }
+
+  let prediction;
+  try {
+    prediction = await predictWithResNet(image.bytes, image.filename);
+  } catch (err) {
+    console.error('[PEST-ALERT] ResNet predict failed:', err.message);
+    return { skipped: true, reason: 'predict_failed', error: err.message };
+  }
+
+  const { result } = prediction;
+  if (!isPestPrediction(result)) {
+    return {
+      skipped: true,
+      reason: 'no_pest',
+      label: result?.label ?? result?.label_vietnamese,
+    };
+  }
+
+  const labelVi = result.label_vietnamese
+    ?? result.label
+    ?? 'Sâu bệnh';
+  const confText = formatConfidence(result);
+  const confLine = confText ? ` (độ tin cậy ${confText})` : '';
+
+  const text = [
+    'Cảnh báo: có sâu đang xâm nhập vườn.',
+    '',
+    `Kết quả ResNet: ${labelVi}${confLine}`,
+    result.explanation ? `Ghi chú: ${result.explanation}` : null,
+    '',
+    `Nguồn ảnh: ${image.source}`,
+    image.capturedAt ? `Thời điểm ảnh: ${image.capturedAt}` : null,
+    image.publicUrl ? `URL: ${image.publicUrl}` : null,
+  ].filter(Boolean).join('\n');
+
+  const html = `
+    <h2>Có sâu đang xâm nhập vườn</h2>
+    <p>Hệ thống vừa phân tích ảnh camera bằng <strong>ResNet</strong> và phát hiện dấu hiệu sâu bệnh.</p>
+    <ul>
+      <li><strong>${labelVi}</strong>${confLine}</li>
+      ${result.explanation ? `<li>${result.explanation}</li>` : ''}
+      <li>Nguồn ảnh: ${image.source}</li>
+      ${image.capturedAt ? `<li>Thời điểm ảnh: ${image.capturedAt}</li>` : ''}
+    </ul>
+    <p style="color:#666;font-size:12px;">Kiểm tra mỗi giờ khi bật trong app. Tối đa 1 email/giờ.</p>
+  `;
+
+  await sendMail({
+    subject: '[Plant IoT] Cảnh báo — sâu đang xâm nhập vườn',
+    text,
+    html,
+  });
+
+  await markPestAlertSent();
+  console.log(`[PEST-ALERT] Sent email — ${labelVi}${confLine}`);
+
+  return {
+    skipped: false,
+    label: result.label,
+    label_vietnamese: labelVi,
+    confidence: confText,
+  };
+}
+
+module.exports = {
+  checkAndSendPestAlert,
+  isPestPrediction,
+  loadLatestCameraImageBytes,
+  PEST_CLASS_LABELS,
+};

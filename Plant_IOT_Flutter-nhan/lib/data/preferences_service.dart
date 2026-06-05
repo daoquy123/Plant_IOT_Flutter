@@ -38,6 +38,12 @@ class PreferencesService {
           prefs.getString(PreferenceKeys.aiServerUrl) ?? kDefaultAiServerUrl,
       PreferenceKeys.autoWater:
           prefs.getBool(PreferenceKeys.autoWater) ?? false,
+      PreferenceKeys.sensorAlert:
+          prefs.getBool(PreferenceKeys.sensorAlert)
+          ?? prefs.getBool('email_report')
+          ?? true,
+      PreferenceKeys.pestAlert:
+          prefs.getBool(PreferenceKeys.pestAlert) ?? false,
     };
   }
 
@@ -47,6 +53,8 @@ class PreferencesService {
     required String cameraUrl,
     required String aiServerUrl,
     required bool autoWater,
+    required bool sensorAlert,
+    required bool pestAlert,
   }) async {
     final prefs = await _p;
     await prefs.setString(PreferenceKeys.serverUrl, serverUrl);
@@ -54,5 +62,7 @@ class PreferencesService {
     await prefs.setString(PreferenceKeys.cameraUrl, cameraUrl);
     await prefs.setString(PreferenceKeys.aiServerUrl, aiServerUrl);
     await prefs.setBool(PreferenceKeys.autoWater, autoWater);
+    await prefs.setBool(PreferenceKeys.sensorAlert, sensorAlert);
+    await prefs.setBool(PreferenceKeys.pestAlert, pestAlert);
   }
 }

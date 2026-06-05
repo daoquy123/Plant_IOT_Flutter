@@ -1,10 +1,16 @@
 const express = require('express');
+const { config } = require('../../config/env');
 const {
   createRelayState,
   getRelayStatus,
   getRelayHistory,
   getPumpRuns,
 } = require('../../services/relayService');
+const {
+  isPumpSessionActive,
+  runPumpSession,
+  sessionDurationSeconds,
+} = require('../../services/relayActionService');
 
 const router = express.Router();
 
@@ -37,6 +43,34 @@ function actionToRelay(body) {
 
 router.post('/', (req, res, next) => {
   const body = req.body || {};
+  const action = body.action != null ? String(body.action).trim().toLowerCase() : '';
+
+  if (action === 'pump_start') {
+    if (isPumpSessionActive()) {
+      return res.status(409).json({
+        success: false,
+        message: 'Máy bơm đang trong phiên tưới. Vui lòng đợi hết phiên.',
+      });
+    }
+
+    const hooks = {
+      io: req.app.locals.io,
+      publishRelayState: req.app.locals.publishRelayState,
+    };
+    const durationSeconds = sessionDurationSeconds(config.PUMP_SESSION_SECONDS);
+
+    res.status(202).json({
+      success: true,
+      started: true,
+      duration_seconds: durationSeconds,
+      message: `Đã bắt đầu phiên tưới ${durationSeconds}s.`,
+    });
+
+    runPumpSession('app_action', hooks, { durationSeconds }).catch((err) => {
+      console.error('[PUMP-SESSION] Manual session failed:', err.message);
+    });
+    return;
+  }
 
   let relayId = Number(body.relay_id);
   let state = parseBoolean(body.state);

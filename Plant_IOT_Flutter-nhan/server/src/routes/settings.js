@@ -2,9 +2,15 @@ const express = require('express');
 const {
   getAutoWaterEnabled,
   setAutoWaterEnabled,
+  getSensorAlertEnabled,
+  setSensorAlertEnabled,
+  getPestAlertEnabled,
+  setPestAlertEnabled,
 } = require('../../services/settingsService');
 const { runAutoWaterCycle } = require('../../services/autoWaterService');
 const { sendScheduledReport } = require('../../services/dailyReportService');
+const { checkAndSendSensorAlert } = require('../../services/sensorAlertService');
+const { checkAndSendPestAlert } = require('../../services/pestAlertService');
 
 const router = express.Router();
 
@@ -22,6 +28,81 @@ router.put('/auto-water', (req, res, next) => {
   setAutoWaterEnabled(enabled, (err) => {
     if (err) return next(err);
     res.json({ success: true, enabled });
+  });
+});
+
+router.get('/sensor-alert', (req, res, next) => {
+  getSensorAlertEnabled((err, enabled) => {
+    if (err) return next(err);
+    res.json({ success: true, enabled: !!enabled });
+  });
+});
+
+router.put('/sensor-alert', (req, res, next) => {
+  const enabled = req.body?.enabled === true
+    || req.body?.enabled === 1
+    || String(req.body?.enabled).toLowerCase() === 'true';
+  setSensorAlertEnabled(enabled, (err) => {
+    if (err) return next(err);
+    res.json({ success: true, enabled });
+  });
+});
+
+/** @deprecated — dùng /sensor-alert */
+router.get('/email-report', (req, res, next) => {
+  getSensorAlertEnabled((err, enabled) => {
+    if (err) return next(err);
+    res.json({ success: true, enabled: !!enabled });
+  });
+});
+
+/** @deprecated — dùng /sensor-alert */
+router.put('/email-report', (req, res, next) => {
+  const enabled = req.body?.enabled === true
+    || req.body?.enabled === 1
+    || String(req.body?.enabled).toLowerCase() === 'true';
+  setSensorAlertEnabled(enabled, (err) => {
+    if (err) return next(err);
+    res.json({ success: true, enabled });
+  });
+});
+
+router.post('/sensor-alert/test', (req, res) => {
+  res.status(202).json({
+    success: true,
+    started: true,
+    message: 'Đã chạy kiểm tra ngưỡng — email chỉ gửi nếu vượt ngưỡng.',
+  });
+  checkAndSendSensorAlert({ force: true }).catch((err) => {
+    console.error('[SENSOR-ALERT] Manual test failed:', err.message);
+  });
+});
+
+router.get('/pest-alert', (req, res, next) => {
+  getPestAlertEnabled((err, enabled) => {
+    if (err) return next(err);
+    res.json({ success: true, enabled: !!enabled });
+  });
+});
+
+router.put('/pest-alert', (req, res, next) => {
+  const enabled = req.body?.enabled === true
+    || req.body?.enabled === 1
+    || String(req.body?.enabled).toLowerCase() === 'true';
+  setPestAlertEnabled(enabled, (err) => {
+    if (err) return next(err);
+    res.json({ success: true, enabled });
+  });
+});
+
+router.post('/pest-alert/test', (req, res) => {
+  res.status(202).json({
+    success: true,
+    started: true,
+    message: 'Đã chạy kiểm tra ResNet trên ảnh camera — email chỉ gửi nếu phát hiện sâu.',
+  });
+  checkAndSendPestAlert({ force: true }).catch((err) => {
+    console.error('[PEST-ALERT] Manual test failed:', err.message);
   });
 });
 

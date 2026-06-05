@@ -240,34 +240,60 @@ class Esp32Client {
     _decodeMap(response);
   }
 
-  Future<Map<String, dynamic>> testEmailReport({
+  Future<bool> fetchSensorAlertEnabled({
     required String serverBase,
     required String apiKey,
   }) async {
-    final uri = _resolveBase(serverBase, '/api/settings/reports/email/test');
+    final uri = _resolveBase(serverBase, '/api/settings/sensor-alert');
     final response = await _client
-        .post(
-          uri,
-          headers: _buildHeaders(apiKey),
-          body: jsonEncode(<String, dynamic>{}),
-        )
+        .get(uri, headers: _buildHeaders(apiKey))
         .timeout(_httpTimeout);
-    return _decodeMap(response);
+    final map = _decodeMap(response);
+    return map['enabled'] == true;
   }
 
-  Future<Map<String, dynamic>> testAutoWater({
+  Future<void> updateSensorAlertEnabled({
+    required String serverBase,
+    required String apiKey,
+    required bool enabled,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/settings/sensor-alert');
+    final response = await _client
+        .put(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode({'enabled': enabled}),
+        )
+        .timeout(_httpTimeout);
+    _decodeMap(response);
+  }
+
+  Future<bool> fetchPestAlertEnabled({
     required String serverBase,
     required String apiKey,
   }) async {
-    final uri = _resolveBase(serverBase, '/api/settings/auto-water/test');
+    final uri = _resolveBase(serverBase, '/api/settings/pest-alert');
     final response = await _client
-        .post(
+        .get(uri, headers: _buildHeaders(apiKey))
+        .timeout(_httpTimeout);
+    final map = _decodeMap(response);
+    return map['enabled'] == true;
+  }
+
+  Future<void> updatePestAlertEnabled({
+    required String serverBase,
+    required String apiKey,
+    required bool enabled,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/settings/pest-alert');
+    final response = await _client
+        .put(
           uri,
           headers: _buildHeaders(apiKey),
-          body: jsonEncode(<String, dynamic>{}),
+          body: jsonEncode({'enabled': enabled}),
         )
-        .timeout(const Duration(seconds: 30));
-    return _decodeMap(response);
+        .timeout(_httpTimeout);
+    _decodeMap(response);
   }
 
   void close() => _client.close();

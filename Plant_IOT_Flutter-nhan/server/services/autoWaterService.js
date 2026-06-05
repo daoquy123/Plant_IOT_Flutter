@@ -1,5 +1,5 @@
 const { config } = require('../config/env');
-const { performPumpActionAsync } = require('./relayActionService');
+const { runPumpSession } = require('./relayActionService');
 const { getAutoWaterEnabledAsync } = require('./settingsService');
 const { sendMail, isEmailConfigured } = require('./emailService');
 
@@ -17,12 +17,6 @@ function slotLabel(slot) {
   return slot;
 }
 
-function delay(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
 async function notifyAutoWaterStarted(slot) {
   if (!isEmailConfigured()) return;
   const when = vnNowLabel();
@@ -35,7 +29,7 @@ async function notifyAutoWaterStarted(slot) {
       `Khung giờ: ${label}`,
       `Thời điểm: ${when} (giờ VN)`,
       '',
-      'Máy bơm được điều khiển qua cùng API relay như trang Điều khiển (pump_on → pump_off).',
+      'Máy bơm chạy một phiên (bật → chờ → tự tắt) giống trang Điều khiển.',
     ].join('\n'),
     html: `
       <h2>Đang tự động tưới</h2>
@@ -59,20 +53,19 @@ async function runAutoWaterCycle(slot, hooks, { force = false } = {}) {
     return { skipped: true, reason: 'disabled' };
   }
 
-  const durationMs = Math.max(5, config.AUTO_WATER_PUMP_SECONDS) * 1000;
-  console.log(`[AUTO-WATER] Starting ${slot}: pump_on (${config.AUTO_WATER_PUMP_SECONDS}s)`);
+  const durationSeconds = Math.max(5, config.AUTO_WATER_PUMP_SECONDS);
+  console.log(`[AUTO-WATER] Starting ${slot}: pump session (${durationSeconds}s)`);
 
-  await performPumpActionAsync(true, 'auto_water', hooks);
-  await notifyAutoWaterStarted(slot).catch((err) => {
-    console.error('[AUTO-WATER] Email notify failed:', err.message);
+  const result = await runPumpSession('auto_water', hooks, {
+    durationSeconds,
+    onStarted: () =>
+      notifyAutoWaterStarted(slot).catch((err) => {
+        console.error('[AUTO-WATER] Email notify failed:', err.message);
+      }),
   });
+  console.log(`[AUTO-WATER] Finished ${slot}: session ended`);
 
-  await delay(durationMs);
-
-  await performPumpActionAsync(false, 'auto_water', hooks);
-  console.log(`[AUTO-WATER] Finished ${slot}: pump_off`);
-
-  return { skipped: false, slot, durationSeconds: config.AUTO_WATER_PUMP_SECONDS };
+  return { skipped: false, slot, durationSeconds: result.durationSeconds };
 }
 
 module.exports = {

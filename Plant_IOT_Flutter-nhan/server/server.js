@@ -30,6 +30,8 @@ const { insertReading } = require('./services/sensorService');
 const { createRelayState, getRelayStatus } = require('./services/relayService');
 const { startDailyEmailScheduler, stopDailyEmailScheduler } = require('./jobs/scheduleDailyEmail');
 const { startAutoWaterScheduler, stopAutoWaterScheduler } = require('./jobs/scheduleAutoWater');
+const { startSensorAlertScheduler, stopSensorAlertScheduler } = require('./jobs/scheduleSensorAlert');
+const { startPestAlertScheduler, stopPestAlertScheduler } = require('./jobs/schedulePestAlert');
 
 const UPLOADS_DIR = path.resolve(__dirname, config.UPLOADS_DIR);
 const LOGS_DIR = path.resolve(__dirname, 'logs');
@@ -311,6 +313,8 @@ const serverInstance = server.listen(PORT, HOST, () => {
   };
   startDailyEmailScheduler();
   startAutoWaterScheduler(relayHooks);
+  startSensorAlertScheduler();
+  startPestAlertScheduler();
 });
 
 const cleanupTimer = setInterval(() => {
@@ -336,6 +340,8 @@ function shutdown(signal) {
   console.log(`Received ${signal}, closing server...`);
   stopDailyEmailScheduler();
   stopAutoWaterScheduler();
+  stopSensorAlertScheduler();
+  stopPestAlertScheduler();
   clearInterval(cleanupTimer);
   clearInterval(streamWatchdogTimer);
   serverInstance.close(() => {

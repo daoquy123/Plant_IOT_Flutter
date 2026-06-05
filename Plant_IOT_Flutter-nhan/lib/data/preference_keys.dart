@@ -5,4 +5,6 @@ abstract final class PreferenceKeys {
   static const cameraUrl = 'camera_url';
   static const aiServerUrl = 'ai_server_url';
   static const autoWater = 'auto_water';
+  static const sensorAlert = 'sensor_alert';
+  static const pestAlert = 'pest_alert';
 }
