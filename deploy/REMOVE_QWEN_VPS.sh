@@ -35,6 +35,16 @@ pm2 start "$ROOT/.venv/bin/uvicorn" \
   app.main:app --host 0.0.0.0 --port 8000 --workers 1
 pm2 save
 
-sleep 3
-curl -fsS "http://127.0.0.1:8000/health" && echo
-echo "Done. /api/chat đã bỏ — chỉ còn /predict."
+echo "Đợi API khởi động (TensorFlow có thể mất 30–90s)..."
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  if curl -fsS "http://127.0.0.1:8000/health" >/dev/null 2>&1; then
+    curl -fsS "http://127.0.0.1:8000/health" && echo
+    echo "Done. /api/chat đã bỏ — chỉ còn /predict."
+    exit 0
+  fi
+  sleep 6
+done
+
+echo "WARN: health chưa OK sau 90s. Xem: pm2 logs plant-ai --lines 50"
+pm2 status plant-ai
+exit 1

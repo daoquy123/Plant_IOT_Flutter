@@ -212,6 +212,64 @@ class Esp32Client {
     return _decodeMap(response);
   }
 
+  Future<bool> fetchAutoWaterEnabled({
+    required String serverBase,
+    required String apiKey,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/settings/auto-water');
+    final response = await _client
+        .get(uri, headers: _buildHeaders(apiKey))
+        .timeout(_httpTimeout);
+    final map = _decodeMap(response);
+    return map['enabled'] == true;
+  }
+
+  Future<void> updateAutoWaterEnabled({
+    required String serverBase,
+    required String apiKey,
+    required bool enabled,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/settings/auto-water');
+    final response = await _client
+        .put(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode({'enabled': enabled}),
+        )
+        .timeout(_httpTimeout);
+    _decodeMap(response);
+  }
+
+  Future<Map<String, dynamic>> testEmailReport({
+    required String serverBase,
+    required String apiKey,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/settings/reports/email/test');
+    final response = await _client
+        .post(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode(<String, dynamic>{}),
+        )
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
+  Future<Map<String, dynamic>> testAutoWater({
+    required String serverBase,
+    required String apiKey,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/settings/auto-water/test');
+    final response = await _client
+        .post(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode(<String, dynamic>{}),
+        )
+        .timeout(const Duration(seconds: 90));
+    return _decodeMap(response);
+  }
+
   void close() => _client.close();
 }
 

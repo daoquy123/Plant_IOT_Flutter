@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "lint": "node --check server.js",
-    "seed:analytics": "node scripts/seed_analytics_demo.js"
+    "seed:analytics": "node scripts/seed_analytics_demo.js",
+    "email:report": "node scripts/send_test_report.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -18,6 +19,8 @@
     "morgan": "^1.10.0",
     "mqtt": "^5.15.1",
     "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.10.1",
     "socket.io": "^4.8.1",
     "sqlite3": "^5.1.6"
   },

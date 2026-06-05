@@ -20,6 +20,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final SettingsProvider _settings;
   late final VoidCallback _hydrateListener;
   bool _hydrated = false;
+  bool _emailTestBusy = false;
+  bool _waterTestBusy = false;
 
   @override
   void initState() {
@@ -153,14 +155,95 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
               ),
               subtitle: Text(
-                'Bật khi backend / ESP hỗ trợ lệnh tương ứng',
+                'Server tưới lúc 6:00 sáng và 17:00 chiều (giờ VN) khi bật',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: scheme.onSurface.withValues(alpha: 0.52),
                       height: 1.4,
                     ),
               ),
               value: settings.autoWater,
-              onChanged: settings.setAutoWater,
+              onChanged: (value) async {
+                await settings.setAutoWater(value);
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      value
+                          ? 'Đã bật tưới tự động trên server'
+                          : 'Đã tắt tưới tự động',
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          AppCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(Icons.water_drop_outlined, color: scheme.primary),
+                  title: const Text('Thử tưới tự động ngay'),
+                  subtitle: const Text(
+                    'Bật/tắt bơm qua server (~60s) + email thông báo',
+                  ),
+                  trailing: _waterTestBusy
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.play_arrow_rounded),
+                  onTap: _waterTestBusy
+                      ? null
+                      : () async {
+                          setState(() => _waterTestBusy = true);
+                          final err = await settings.testAutoWater();
+                          if (!context.mounted) return;
+                          setState(() => _waterTestBusy = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                err == null
+                                    ? 'Đã chạy thử tưới — kiểm tra bơm và Gmail'
+                                    : err,
+                              ),
+                            ),
+                          );
+                        },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(Icons.email_outlined, color: scheme.primary),
+                  title: const Text('Gửi thử email báo cáo'),
+                  subtitle: const Text('Báo cáo cảm biến + số lần bơm hôm nay'),
+                  trailing: _emailTestBusy
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_outlined),
+                  onTap: _emailTestBusy
+                      ? null
+                      : () async {
+                          setState(() => _emailTestBusy = true);
+                          final err = await settings.testEmailReport();
+                          if (!context.mounted) return;
+                          setState(() => _emailTestBusy = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                err == null
+                                    ? 'Đã gửi email — kiểm tra hộp thư'
+                                    : err,
+                              ),
+                            ),
+                          );
+                        },
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 22),

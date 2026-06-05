@@ -38,6 +38,16 @@ const config = {
   AI_SERVER_URL: (process.env.AI_SERVER_URL || 'http://103.116.38.192:8000').trim(),
   /** Optional camera stream / latest image URL. */
   CAMERA_URL: (process.env.CAMERA_URL || '').trim(),
+  /** Gmail SMTP — optional, for daily email reports. */
+  EMAIL_HOST: (process.env.EMAIL_HOST || 'smtp.gmail.com').trim(),
+  EMAIL_PORT: Number(process.env.EMAIL_PORT || 587),
+  EMAIL_HOST_USER: (process.env.EMAIL_HOST_USER || '').trim(),
+  EMAIL_HOST_PASSWORD: (process.env.EMAIL_HOST_PASSWORD || '').replace(/\s+/g, ''),
+  DEFAULT_FROM_EMAIL: (process.env.DEFAULT_FROM_EMAIL || process.env.EMAIL_HOST_USER || '').trim(),
+  REPORT_EMAIL_TO: (process.env.REPORT_EMAIL_TO || process.env.EMAIL_HOST_USER || '').trim(),
+  EMAIL_REPORTS_ENABLED: (process.env.EMAIL_REPORTS_ENABLED || 'true').toLowerCase() !== 'false',
+  /** Seconds pump stays on during auto-water cycle (then pump_off). */
+  AUTO_WATER_PUMP_SECONDS: Number(process.env.AUTO_WATER_PUMP_SECONDS || 60),
 };
 
 function validateEnv() {

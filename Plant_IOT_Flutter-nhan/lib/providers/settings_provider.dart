@@ -4,14 +4,17 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/server_defaults.dart';
+import '../data/esp32_client.dart';
 import '../data/preference_keys.dart';
 import '../data/preferences_service.dart';
 
 class SettingsProvider extends ChangeNotifier {
-  SettingsProvider({PreferencesService? preferences})
-      : _preferences = preferences ?? PreferencesService();
+  SettingsProvider({PreferencesService? preferences, Esp32Client? esp32})
+      : _preferences = preferences ?? PreferencesService(),
+        _esp32 = esp32 ?? Esp32Client();
 
   final PreferencesService _preferences;
+  final Esp32Client _esp32;
 
   String serverUrl = '';
   String apiKey = '';
@@ -21,6 +24,9 @@ class SettingsProvider extends ChangeNotifier {
 
   bool _loaded = false;
   bool get isLoaded => _loaded;
+
+  String get _serverBase =>
+      serverUrl.trim().isNotEmpty ? serverUrl.trim() : kDefaultIotServerUrl;
 
   /// Endpoint đầy đủ cho predict (AI base + `/predict` nếu base không có path).
   String get predictEndpoint {
@@ -43,13 +49,14 @@ class SettingsProvider extends ChangeNotifier {
     aiServerUrl = map[PreferenceKeys.aiServerUrl] as String? ?? '';
     autoWater = map[PreferenceKeys.autoWater] as bool? ?? false;
     await _syncFromServerEnv();
+    await _syncAutoWaterFromServer();
     _loaded = true;
     notifyListeners();
   }
 
   /// Đọc PUBLIC_SERVER_URL, AI_SERVER_URL từ server `.env` (GET /api/config).
   Future<void> _syncFromServerEnv() async {
-    final base = serverUrl.trim().isNotEmpty ? serverUrl.trim() : kDefaultIotServerUrl;
+    final base = _serverBase;
     try {
       final uri = Uri.parse(
         base.startsWith('http') ? base : 'http://$base',
@@ -80,20 +87,37 @@ class SettingsProvider extends ChangeNotifier {
         changed = true;
       }
       if (changed) {
-        await _preferences.saveConnectionConfig(
-          serverUrl: serverUrl.trim(),
-          apiKey: apiKey.trim(),
-          cameraUrl: cameraUrl.trim(),
-          aiServerUrl: aiServerUrl.trim(),
-          autoWater: autoWater,
-        );
+        await _persistLocal();
       }
     } catch (_) {
       // Giữ giá trị local nếu server chưa cập nhật /api/config.
     }
   }
 
+  Future<void> _syncAutoWaterFromServer() async {
+    final key = apiKey.trim();
+    if (key.isEmpty) return;
+    try {
+      final enabled = await _esp32.fetchAutoWaterEnabled(
+        serverBase: _serverBase,
+        apiKey: key,
+      );
+      if (enabled != autoWater) {
+        autoWater = enabled;
+        await _persistLocal();
+      }
+    } catch (_) {
+      // Server cũ chưa có API — giữ local.
+    }
+  }
+
   Future<void> saveAll() async {
+    await _persistLocal();
+    await _pushAutoWaterToServer();
+    notifyListeners();
+  }
+
+  Future<void> _persistLocal() async {
     await _preferences.saveConnectionConfig(
       serverUrl: serverUrl.trim(),
       apiKey: apiKey.trim(),
@@ -101,7 +125,55 @@ class SettingsProvider extends ChangeNotifier {
       aiServerUrl: aiServerUrl.trim(),
       autoWater: autoWater,
     );
+  }
+
+  Future<void> _pushAutoWaterToServer() async {
+    final key = apiKey.trim();
+    if (key.isEmpty) return;
+    await _esp32.updateAutoWaterEnabled(
+      serverBase: _serverBase,
+      apiKey: key,
+      enabled: autoWater,
+    );
+  }
+
+  Future<void> setAutoWater(bool value) async {
+    autoWater = value;
     notifyListeners();
+    await _persistLocal();
+    final key = apiKey.trim();
+    if (key.isEmpty) return;
+    try {
+      await _esp32.updateAutoWaterEnabled(
+        serverBase: _serverBase,
+        apiKey: key,
+        enabled: value,
+      );
+    } catch (_) {
+      // Giữ local; cron trên server dùng DB khi sync thành công.
+    }
+  }
+
+  Future<String?> testEmailReport() async {
+    final key = apiKey.trim();
+    if (key.isEmpty) return 'Thiếu API key';
+    try {
+      await _esp32.testEmailReport(serverBase: _serverBase, apiKey: key);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  Future<String?> testAutoWater() async {
+    final key = apiKey.trim();
+    if (key.isEmpty) return 'Thiếu API key';
+    try {
+      await _esp32.testAutoWater(serverBase: _serverBase, apiKey: key);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
   }
 
   void setServerUrl(String value) {
@@ -121,11 +193,6 @@ class SettingsProvider extends ChangeNotifier {
 
   void setAiServerUrl(String value) {
     aiServerUrl = value;
-    notifyListeners();
-  }
-
-  void setAutoWater(bool value) {
-    autoWater = value;
     notifyListeners();
   }
 

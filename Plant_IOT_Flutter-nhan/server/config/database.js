@@ -147,6 +147,12 @@ function runMigrations() {
 
     CREATE INDEX IF NOT EXISTS idx_growing_cycles_started_at ON growing_cycles(started_at);
     CREATE INDEX IF NOT EXISTS idx_growing_cycles_ended_at ON growing_cycles(ended_at);
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `;
 
   database.exec(migrations, (err) => {

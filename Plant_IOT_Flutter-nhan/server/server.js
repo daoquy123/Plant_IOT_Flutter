@@ -24,9 +24,12 @@ const {
 } = require('./src/routes/camera');
 const healthRoutes = require('./src/routes/health');
 const configRoutes = require('./src/routes/config');
+const settingsRoutes = require('./src/routes/settings');
 const growingCycleRoutes = require('./src/routes/growing_cycles');
 const { insertReading } = require('./services/sensorService');
 const { createRelayState, getRelayStatus } = require('./services/relayService');
+const { startDailyEmailScheduler, stopDailyEmailScheduler } = require('./jobs/scheduleDailyEmail');
+const { startAutoWaterScheduler, stopAutoWaterScheduler } = require('./jobs/scheduleAutoWater');
 
 const UPLOADS_DIR = path.resolve(__dirname, config.UPLOADS_DIR);
 const LOGS_DIR = path.resolve(__dirname, 'logs');
@@ -118,6 +121,7 @@ app.use('/api/sensors', historyRoutes);
 app.use('/api/relay', relayRoutes);
 app.use('/api/camera', cameraRoutes);
 app.use('/api/growing-cycles', growingCycleRoutes);
+app.use('/api/settings', settingsRoutes);
 
 app.use(errorHandler);
 
@@ -301,6 +305,12 @@ const serverInstance = server.listen(PORT, HOST, () => {
   console.log(
     `Plant IoT server listening on http://${HOST}:${PORT} (NODE_ENV=${config.NODE_ENV})`
   );
+  const relayHooks = {
+    io,
+    publishRelayState: app.locals.publishRelayState,
+  };
+  startDailyEmailScheduler();
+  startAutoWaterScheduler(relayHooks);
 });
 
 const cleanupTimer = setInterval(() => {
@@ -324,6 +334,8 @@ const streamWatchdogTimer = setInterval(() => {
 
 function shutdown(signal) {
   console.log(`Received ${signal}, closing server...`);
+  stopDailyEmailScheduler();
+  stopAutoWaterScheduler();
   clearInterval(cleanupTimer);
   clearInterval(streamWatchdogTimer);
   serverInstance.close(() => {
