@@ -6,7 +6,7 @@ _CONFIGURED = False
 
 
 def configure_ai_logging() -> None:
-    """Ghi log ra stdout để PM2 gom vào plant-ai-out.log (cùng dòng với uvicorn)."""
+    """Ghi log ra stderr — PM2 gom vào plant-ai-error.log cùng dòng uvicorn INFO."""
     global _CONFIGURED
     if _CONFIGURED:
         return
@@ -17,7 +17,7 @@ def configure_ai_logging() -> None:
         "%(asctime)s %(levelname)s [plant-ai] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(fmt)
 
     for name in ("plant_ai", "plant_ai.predict"):

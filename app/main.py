@@ -8,7 +8,6 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from app.logging_setup import configure_ai_logging
 from app.ml.predictor import get_predictor
@@ -47,22 +46,19 @@ app.add_middleware(
 )
 
 _static_dir = _APP_ROOT / "static"
-_templates_dir = _APP_ROOT / "templates"
 if _static_dir.is_dir():
     app.mount("/static", StaticFiles(directory=_static_dir), name="static")
-templates = (
-    Jinja2Templates(directory=str(_templates_dir)) if _templates_dir.is_dir() else None
-)
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    if templates is None:
-        return HTMLResponse(
-            "<h1>Plant AI API</h1><p>POST /predict hoặc /api/predict với file ảnh.</p>",
-            status_code=200,
-        )
-    return templates.TemplateResponse("index.html", {"request": request})
+async def index(_request: Request):
+    return HTMLResponse(
+        "<h1>Plant AI API</h1>"
+        "<p>POST <code>/predict</code> hoặc <code>/api/predict</code> "
+        "với file ảnh và <code>model=vgg16|resnet</code>.</p>"
+        "<p>GET <code>/health</code> — kiểm tra service.</p>",
+        status_code=200,
+    )
 
 
 async def _predict_image(request: Request, file: UploadFile, model: str) -> JSONResponse:
