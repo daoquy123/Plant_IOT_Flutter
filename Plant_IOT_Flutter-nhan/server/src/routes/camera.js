@@ -14,6 +14,10 @@ const {
 const router = express.Router();
 const uploadDirectory = path.resolve(__dirname, '../../', config.UPLOADS_DIR);
 const streamRawParser = express.raw({ type: 'image/jpeg', limit: '2mb' });
+const MAX_STREAM_FPS = 12;
+const activeStreamViewers = new Set();
+let lastStreamFps = 8;
+let lastFrameAt = 0;
 
 const storage = multer.diskStorage({
   destination: uploadDirectory,
@@ -38,6 +42,41 @@ function buildPublicUrl(req, filename) {
   const proto = req.get('x-forwarded-proto') || req.protocol;
   const host = req.get('host');
   return `${proto}://${host}/uploads/${filename}`;
+}
+
+function buildStreamStartCommand(fps = lastStreamFps) {
+  const safeFps = Math.min(MAX_STREAM_FPS, Math.max(1, Number(fps) || lastStreamFps));
+  lastStreamFps = safeFps;
+  return {
+    type: 'stream_start',
+    fps: safeFps,
+    requested_at: new Date().toISOString(),
+  };
+}
+
+function resumeStreamForActiveViewers(app) {
+  if (activeStreamViewers.size === 0) return false;
+  if (typeof app.locals.publishCameraCommand !== 'function') return false;
+  return app.locals.publishCameraCommand(buildStreamStartCommand());
+}
+
+function publishCameraCommand(req, res, command) {
+  if (typeof req.app.locals.publishCameraCommand !== 'function') {
+    return res.status(503).json({
+      success: false,
+      message: 'MQTT camera command publisher is not available.',
+    });
+  }
+
+  const published = req.app.locals.publishCameraCommand(command);
+  if (!published) {
+    return res.status(503).json({
+      success: false,
+      message: 'MQTT broker is not connected. Camera command was not sent.',
+    });
+  }
+
+  return null;
 }
 
 router.post('/upload', upload.single('image'), (req, res, next) => {
@@ -78,8 +117,16 @@ router.post('/frame', streamRawParser, (req, res) => {
     return res.status(400).json({ success: false, message: 'Missing JPEG frame payload.' });
   }
 
+  const ts = Date.now();
+  lastFrameAt = ts;
   setLatestFrame(frameBuffer);
-  req.app.locals.io.emit('frame-update', { size: frameBuffer.length, ts: Date.now() });
+  req.app.locals.io.emit('frame-update', { size: frameBuffer.length, ts });
+  req.app.locals.io.emit('camera-frame', {
+    image: frameBuffer,
+    size: frameBuffer.length,
+    deviceId: req.get('x-device-id') || 'esp32_cam_main',
+    ts,
+  });
   return res.json({ success: true });
 });
 
@@ -100,14 +147,8 @@ router.post('/request-capture', (req, res) => {
     requested_at: new Date().toISOString(),
   };
 
-  if (typeof req.app.locals.publishCameraCommand !== 'function') {
-    return res.status(503).json({
-      success: false,
-      message: 'MQTT camera command publisher is not available.',
-    });
-  }
-
-  const published = req.app.locals.publishCameraCommand(command);
+  const publishError = publishCameraCommand(req, res, command);
+  const published = !publishError;
   createCaptureRequest({
     requestId: command.request_id,
     deviceId: req.body?.device_id || 'esp32_cam_main',
@@ -118,15 +159,61 @@ router.post('/request-capture', (req, res) => {
       return console.error('Failed to record camera capture request:', err.message);
     }
   });
-  if (!published) {
-    return res.status(503).json({
-      success: false,
-      message: 'MQTT broker is not connected. Camera command was not sent.',
-    });
-  }
+  if (publishError) return publishError;
 
   req.app.locals.io.emit('capture-requested', command);
   return res.json({ success: true, command });
+});
+
+router.post('/stream/start', (req, res) => {
+  const fps = Math.min(MAX_STREAM_FPS, Math.max(1, Number(req.body?.fps) || 8));
+  const viewerId = req.body?.viewer_id?.toString().trim() || 'app';
+  activeStreamViewers.add(viewerId);
+  const command = buildStreamStartCommand(fps);
+
+  // Always publish so ESP32-CAM can resume after an unexpected reboot/power loss.
+  const publishError = publishCameraCommand(req, res, command);
+  if (publishError) {
+    activeStreamViewers.delete(viewerId);
+    return publishError;
+  }
+
+  req.app.locals.io.emit('camera-stream-status', {
+    enabled: true,
+    fps,
+    viewers: activeStreamViewers.size,
+    timestamp: Date.now(),
+  });
+  return res.json({ success: true, command, viewers: activeStreamViewers.size });
+});
+
+router.post('/stream/stop', (req, res) => {
+  const viewerId = req.body?.viewer_id?.toString().trim() || 'app';
+  activeStreamViewers.delete(viewerId);
+
+  if (activeStreamViewers.size > 0) {
+    req.app.locals.io.emit('camera-stream-status', {
+      enabled: true,
+      viewers: activeStreamViewers.size,
+      timestamp: Date.now(),
+    });
+    return res.json({ success: true, skipped: 'active_viewers_remaining', viewers: activeStreamViewers.size });
+  }
+
+  const command = {
+    type: 'stream_stop',
+    requested_at: new Date().toISOString(),
+  };
+
+  const publishError = publishCameraCommand(req, res, command);
+  if (publishError) return publishError;
+
+  req.app.locals.io.emit('camera-stream-status', {
+    enabled: false,
+    viewers: 0,
+    timestamp: Date.now(),
+  });
+  return res.json({ success: true, command, viewers: 0 });
 });
 
 router.get('/command', (req, res) => {
@@ -180,3 +267,6 @@ router.get('/list', (req, res, next) => {
 });
 
 module.exports = router;
+module.exports.resumeStreamForActiveViewers = resumeStreamForActiveViewers;
+module.exports.getActiveStreamViewerCount = () => activeStreamViewers.size;
+module.exports.getLastFrameAt = () => lastFrameAt;

@@ -17,6 +17,11 @@ const sensorRoutes = require('./src/routes/sensors');
 const historyRoutes = require('./src/routes/history');
 const relayRoutes = require('./src/routes/relay');
 const cameraRoutes = require('./src/routes/camera');
+const {
+  resumeStreamForActiveViewers,
+  getActiveStreamViewerCount,
+  getLastFrameAt,
+} = require('./src/routes/camera');
 const healthRoutes = require('./src/routes/health');
 const configRoutes = require('./src/routes/config');
 const growingCycleRoutes = require('./src/routes/growing_cycles');
@@ -280,6 +285,13 @@ mqttClient.on('message', (topic, messageBuffer) => {
 
   if (topic === MQTT_TOPICS.cameraStatus) {
     io.emit('camera-status', payload);
+    const status = payload.status?.toString().toLowerCase();
+    if (status === 'online' && getActiveStreamViewerCount() > 0) {
+      const resumed = resumeStreamForActiveViewers(app);
+      if (resumed) {
+        console.log('[MQTT] ESP32-CAM online — re-sent stream_start for active viewers');
+      }
+    }
   }
 });
 
@@ -299,9 +311,21 @@ const cleanupTimer = setInterval(() => {
   }
 }, 1000 * 60 * 60 * 12);
 
+const STREAM_STALE_MS = 8000;
+const streamWatchdogTimer = setInterval(() => {
+  if (getActiveStreamViewerCount() === 0) return;
+  const lastFrameAt = getLastFrameAt();
+  if (!lastFrameAt || Date.now() - lastFrameAt < STREAM_STALE_MS) return;
+  const resumed = resumeStreamForActiveViewers(app);
+  if (resumed) {
+    console.log('[STREAM] Stale frames detected — re-sent stream_start to ESP32-CAM');
+  }
+}, 4000);
+
 function shutdown(signal) {
   console.log(`Received ${signal}, closing server...`);
   clearInterval(cleanupTimer);
+  clearInterval(streamWatchdogTimer);
   serverInstance.close(() => {
     io.close(() => {
       mqttClient.end(true, {}, () => {

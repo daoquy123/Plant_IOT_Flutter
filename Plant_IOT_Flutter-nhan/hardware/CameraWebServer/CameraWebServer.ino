@@ -20,6 +20,7 @@ static const char *API_HOST = "103.116.38.192";
 static const uint16_t HTTP_PORT = 80;
 
 static const char *UPLOAD_PATH = "/api/camera/upload";
+static const char *FRAME_PATH = "/api/camera/frame";
 static const char *MQTT_HOST = "103.116.38.192";
 static const uint16_t MQTT_PORT = 1883;
 static const char *MQTT_CLIENT_ID = "esp32_cam_main";
@@ -34,9 +35,11 @@ static const unsigned long WIFI_RETRY_MS = 5000;
 static const unsigned long MQTT_RETRY_MS = 3000;
 static const uint32_t HTTP_TIMEOUT_MS = 15000;
 
-// Idle profile (lightweight for RAM while waiting for MQTT commands)
-static const framesize_t STREAM_SIZE = FRAMESIZE_QVGA;
-static const int STREAM_QUALITY = 14;
+// Realtime stream profile. VGA is a practical first target for ESP32-CAM WiFi.
+static const framesize_t STREAM_SIZE = FRAMESIZE_VGA;
+static const int STREAM_QUALITY = 16;
+static const uint8_t STREAM_TARGET_FPS = 8;
+static const uint8_t STREAM_MAX_FPS = 12;
 
 // Capture profile (high quality on demand only)
 static const framesize_t CAPTURE_SIZE = FRAMESIZE_UXGA;
@@ -47,7 +50,10 @@ unsigned long lastWiFiRetryMs = 0;
 unsigned long lastMqttRetryMs = 0;
 unsigned long resetPressStartMs = 0;
 bool captureRequested = false;
+bool streamEnabled = false;
 char pendingRequestId[64] = "";
+unsigned long lastStreamFrameMs = 0;
+unsigned long streamIntervalMs = 1000 / STREAM_TARGET_FPS;
 WiFiClient mqttWifiClient;
 PubSubClient mqttClient(mqttWifiClient);
 
@@ -87,6 +93,16 @@ void applyCaptureProfile() {
   s->set_quality(s, CAPTURE_QUALITY);
 }
 
+void discardCameraFrames(uint8_t count, uint16_t delayMs = 80) {
+  for (uint8_t i = 0; i < count; i++) {
+    camera_fb_t *stale = esp_camera_fb_get();
+    if (stale) {
+      esp_camera_fb_return(stale);
+    }
+    delay(delayMs);
+  }
+}
+
 bool initCamera() {
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -109,8 +125,8 @@ bool initCamera() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 10000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size = STREAM_SIZE;
-  config.jpeg_quality = STREAM_QUALITY;
+  config.frame_size = CAPTURE_SIZE;
+  config.jpeg_quality = CAPTURE_QUALITY;
   config.fb_count = psramFound() ? 2 : 1;
   config.grab_mode = CAMERA_GRAB_LATEST;
 
@@ -205,6 +221,35 @@ bool uploadCaptureMultipart(camera_fb_t *fb, const char *requestId) {
   return ok;
 }
 
+bool uploadStreamFrame(camera_fb_t *fb) {
+  if (!fb || fb->len == 0) return false;
+
+  WiFiClient client;
+  client.setTimeout(HTTP_TIMEOUT_MS);
+  if (!client.connect(API_HOST, HTTP_PORT)) {
+    Serial.println(F("[STREAM] HTTP connect failed"));
+    return false;
+  }
+
+  client.printf("POST %s HTTP/1.1\r\n", FRAME_PATH);
+  client.printf("Host: %s\r\n", API_HOST);
+  client.println("Connection: close");
+  client.printf("X-API-KEY: %s\r\n", API_KEY);
+  client.printf("X-DEVICE-ID: %s\r\n", MQTT_CLIENT_ID);
+  client.println("Content-Type: image/jpeg");
+  client.printf("Content-Length: %u\r\n\r\n", (unsigned int)fb->len);
+  client.write(fb->buf, fb->len);
+
+  String statusLine = client.readStringUntil('\n');
+  client.stop();
+
+  bool ok = statusLine.indexOf(" 200 ") > 0 || statusLine.indexOf(" 201 ") > 0;
+  if (!ok) {
+    Serial.printf("[STREAM] Frame upload failed: %s\n", statusLine.c_str());
+  }
+  return ok;
+}
+
 void publishCameraStatus(const char *status, const char *requestId = "") {
   if (!mqttClient.connected()) return;
 
@@ -232,13 +277,35 @@ void onMqttMessage(char *topic, byte *payload, unsigned int length) {
   }
 
   const char *type = doc["type"] | "";
-  if (strcmp(type, "capture") != 0) return;
 
-  const char *requestId = doc["request_id"] | "";
-  strlcpy(pendingRequestId, requestId, sizeof(pendingRequestId));
-  captureRequested = true;
-  Serial.printf("[MQTT] Capture requested: %s\n", pendingRequestId);
-  publishCameraStatus("capture_accepted", pendingRequestId);
+  if (strcmp(type, "capture") == 0) {
+    const char *requestId = doc["request_id"] | "";
+    strlcpy(pendingRequestId, requestId, sizeof(pendingRequestId));
+    captureRequested = true;
+    Serial.printf("[MQTT] Capture requested: %s\n", pendingRequestId);
+    publishCameraStatus("capture_accepted", pendingRequestId);
+    return;
+  }
+
+  if (strcmp(type, "stream_start") == 0) {
+    int fps = doc["fps"] | STREAM_TARGET_FPS;
+    fps = constrain(fps, 1, STREAM_MAX_FPS);
+    streamIntervalMs = 1000UL / (unsigned long)fps;
+    streamEnabled = true;
+    lastStreamFrameMs = 0;
+    applyStreamProfile();
+    discardCameraFrames(2, 40);
+    Serial.printf("[STREAM] Started at %d FPS\n", fps);
+    publishCameraStatus("stream_started");
+    return;
+  }
+
+  if (strcmp(type, "stream_stop") == 0) {
+    streamEnabled = false;
+    Serial.println(F("[STREAM] Stopped"));
+    publishCameraStatus("stream_stopped");
+    return;
+  }
 }
 
 void ensureMqttConnected() {
@@ -276,7 +343,8 @@ void ensureMqttConnected() {
 
 bool runOnDemandCapture(const char *requestId) {
   applyCaptureProfile();
-  delay(120); // allow sensor to settle after profile switch
+  delay(200); // allow sensor to settle after profile switch
+  discardCameraFrames(2);
 
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
@@ -285,6 +353,7 @@ bool runOnDemandCapture(const char *requestId) {
     return false;
   }
 
+  Serial.printf("[CAPTURE] Frame: %ux%u, %u bytes\n", fb->width, fb->height, fb->len);
   bool ok = uploadCaptureMultipart(fb, requestId);
   esp_camera_fb_return(fb);
 
@@ -292,6 +361,26 @@ bool runOnDemandCapture(const char *requestId) {
   Serial.printf("[CAPTURE] Completed (%d)\n", (int)ok);
   publishCameraStatus(ok ? "capture_uploaded" : "capture_upload_failed", requestId);
   return ok;
+}
+
+void runStreamFrameIfDue() {
+  if (!streamEnabled) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  unsigned long now = millis();
+  if (lastStreamFrameMs != 0 && now - lastStreamFrameMs < streamIntervalMs) {
+    return;
+  }
+  lastStreamFrameMs = now;
+
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println(F("[STREAM] fb_get failed"));
+    return;
+  }
+
+  uploadStreamFrame(fb);
+  esp_camera_fb_return(fb);
 }
 
 void setup() {
@@ -334,12 +423,18 @@ void loop() {
 
   if (captureRequested) {
     captureRequested = false;
+    const bool resumeStream = streamEnabled;
+    streamEnabled = false;
     char requestId[64];
     strlcpy(requestId, pendingRequestId, sizeof(requestId));
     pendingRequestId[0] = '\0';
     publishCameraStatus("capture_started", requestId);
     runOnDemandCapture(requestId);
+    streamEnabled = resumeStream;
+    lastStreamFrameMs = 0;
   }
+
+  runStreamFrameIfDue();
 
   yield();
 }

@@ -16,7 +16,17 @@ class GardenProvider extends ChangeNotifier {
   GardenProvider({Esp32Client? esp32}) : _esp32 = esp32 ?? Esp32Client();
 
   final Esp32Client _esp32;
+  final String _cameraStreamViewerId =
+      'flutter-${DateTime.now().microsecondsSinceEpoch}';
+  static const Duration _staleFrameThreshold = Duration(seconds: 5);
+  static const Duration _cameraWatchdogInterval = Duration(seconds: 3);
+  static const Duration _minStreamRestartGap = Duration(seconds: 3);
   SettingsProvider? _settings;
+  Timer? _cameraStreamWatchdog;
+  bool _wantCameraStream = false;
+  int _cameraStreamFps = 8;
+  bool _streamRestartInFlight = false;
+  DateTime? _lastStreamRestartAt;
 
   io.Socket? _socket;
   String? _socketBase;
@@ -25,7 +35,8 @@ class GardenProvider extends ChangeNotifier {
   void _notifyCaptureListeners(String url) {
     final u = url.trim();
     if (u.isEmpty) return;
-    for (final listener in List<void Function(String imageUrl)>.from(_captureDoneListeners)) {
+    for (final listener
+        in List<void Function(String imageUrl)>.from(_captureDoneListeners)) {
       listener(u);
     }
   }
@@ -49,7 +60,8 @@ class GardenProvider extends ChangeNotifier {
     final apiKey = _settings?.apiKey ?? '';
     if (base.isEmpty || apiKey.isEmpty) return null;
     try {
-      final map = await _esp32.fetchLatestImage(serverBase: base, apiKey: apiKey);
+      final map =
+          await _esp32.fetchLatestImage(serverBase: base, apiKey: apiKey);
       return _parseLatestImageMap(map);
     } catch (_) {
       return null;
@@ -93,7 +105,8 @@ class GardenProvider extends ChangeNotifier {
       if (cap == null || cap.isEmpty) return false;
       try {
         final t = DateTime.parse(cap).toUtc();
-        return !t.isBefore(requestStartedAt.subtract(const Duration(seconds: 3)));
+        return !t
+            .isBefore(requestStartedAt.subtract(const Duration(seconds: 3)));
       } catch (_) {
         return false;
       }
@@ -132,10 +145,11 @@ class GardenProvider extends ChangeNotifier {
     });
 
     try {
-      final result = await completer.future.timeout(timeout, onTimeout: () => null);
+      final result =
+          await completer.future.timeout(timeout, onTimeout: () => null);
       return result;
     } finally {
-      pollTimer?.cancel();
+      pollTimer.cancel();
       removeCaptureDoneListener(socketListener);
     }
   }
@@ -157,6 +171,9 @@ class GardenProvider extends ChangeNotifier {
   int? rainPercent;
   int? rainRaw;
   String? latestImageUrl;
+  Uint8List? latestFrameBytes;
+  DateTime? latestFrameAt;
+  bool cameraStreamActive = false;
 
   bool shadeOn = false;
   bool pumpOn = true;
@@ -238,7 +255,9 @@ class GardenProvider extends ChangeNotifier {
       gardenStatus = 'Đã kết nối server IoT';
       notifyListeners();
       await _fetchInitialData(normalizedBase, apiKey);
-      
+      if (_wantCameraStream) {
+        await _restartCameraStream();
+      }
     });
     socket.onDisconnect((_) {
       gardenStatus = 'Mất kết nối server IoT';
@@ -265,14 +284,14 @@ class GardenProvider extends ChangeNotifier {
       }
     });
     socket.on('relay', (data) {
-  if (iotBusy) return; // 🔥 CHẶN socket khi đang bấm nút
+      if (iotBusy) return; // 🔥 CHẶN socket khi đang bấm nút
 
-  final map = _coerceMap(data);
-  if (map == null) return;
+      final map = _coerceMap(data);
+      if (map == null) return;
 
-  final rows = map['relay_status'];
-  _applyRelayStatusRows(rows);
-});
+      final rows = map['relay_status'];
+      _applyRelayStatusRows(rows);
+    });
     socket.on('camera', (data) {
       final map = _coerceMap(data);
       String? url;
@@ -298,6 +317,26 @@ class GardenProvider extends ChangeNotifier {
         latestImageUrl = imageUrl.trim();
         notifyListeners();
         _notifyCaptureListeners(latestImageUrl!);
+      }
+    });
+    socket.on('camera-frame', (data) {
+      final bytes = _coerceFrameBytes(data);
+      if (bytes == null || bytes.isEmpty) return;
+      latestFrameBytes = bytes;
+      latestFrameAt = DateTime.now();
+      cameraStreamActive = true;
+      notifyListeners();
+    });
+    socket.on('camera-stream-status', (data) {
+      final map = _coerceMap(data);
+      final enabled = map == null ? null : _asBool(map['enabled']);
+      if (enabled != null) {
+        cameraStreamActive = enabled;
+        if (!enabled) {
+          latestFrameBytes = null;
+          latestFrameAt = null;
+        }
+        notifyListeners();
       }
     });
     socket.on('image', (data) {
@@ -332,6 +371,28 @@ class GardenProvider extends ChangeNotifier {
       } catch (_) {
         return null;
       }
+    }
+    return null;
+  }
+
+  Uint8List? _coerceFrameBytes(dynamic data) {
+    dynamic raw = data;
+    if (data is Map) {
+      raw = data['image'] ?? data['bytes'] ?? data['frame'];
+    }
+    if (raw is Uint8List) return raw;
+    if (raw is List) {
+      final bytes = <int>[];
+      for (final value in raw) {
+        if (value is int) {
+          bytes.add(value);
+        } else if (value is num) {
+          bytes.add(value.toInt());
+        } else {
+          return null;
+        }
+      }
+      return Uint8List.fromList(bytes);
     }
     return null;
   }
@@ -631,6 +692,96 @@ class GardenProvider extends ChangeNotifier {
     await _esp32.requestCapture(serverBase: base, apiKey: apiKey);
   }
 
+  void _startCameraStreamWatchdog() {
+    _cameraStreamWatchdog?.cancel();
+    _cameraStreamWatchdog = Timer.periodic(
+      _cameraWatchdogInterval,
+      (_) => unawaited(_checkCameraStreamHealth()),
+    );
+  }
+
+  void _stopCameraStreamWatchdog() {
+    _cameraStreamWatchdog?.cancel();
+    _cameraStreamWatchdog = null;
+  }
+
+  Future<void> _checkCameraStreamHealth() async {
+    if (!_wantCameraStream) return;
+    final frameAt = latestFrameAt;
+    final stale = frameAt == null ||
+        DateTime.now().difference(frameAt) > _staleFrameThreshold;
+    if (!stale) return;
+    await _restartCameraStream();
+  }
+
+  Future<void> _restartCameraStream() async {
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) return;
+    if (_streamRestartInFlight) return;
+    final now = DateTime.now();
+    if (_lastStreamRestartAt != null &&
+        now.difference(_lastStreamRestartAt!) < _minStreamRestartGap) {
+      return;
+    }
+
+    _streamRestartInFlight = true;
+    _lastStreamRestartAt = now;
+    _ensureRealtimeConnection();
+    try {
+      await _esp32.startCameraStream(
+        serverBase: base,
+        apiKey: apiKey,
+        viewerId: _cameraStreamViewerId,
+        fps: _cameraStreamFps,
+      );
+      cameraStreamActive = true;
+      lastError = null;
+      notifyListeners();
+    } catch (e) {
+      lastError = friendlyNetworkError(e, serverUrl: base);
+      notifyListeners();
+    } finally {
+      _streamRestartInFlight = false;
+    }
+  }
+
+  Future<void> startCameraStream({int fps = 8}) async {
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key';
+      notifyListeners();
+      return;
+    }
+    _wantCameraStream = true;
+    _cameraStreamFps = fps;
+    _startCameraStreamWatchdog();
+    await _restartCameraStream();
+  }
+
+  Future<void> stopCameraStream() async {
+    _wantCameraStream = false;
+    _stopCameraStreamWatchdog();
+    final base = _settings?.serverUrl ?? '';
+    final apiKey = _settings?.apiKey ?? '';
+    if (base.isEmpty || apiKey.isEmpty) return;
+    try {
+      await _esp32.stopCameraStream(
+        serverBase: base,
+        apiKey: apiKey,
+        viewerId: _cameraStreamViewerId,
+      );
+    } catch (_) {
+      // Leaving Dashboard should not surface a noisy stop-stream error.
+    } finally {
+      cameraStreamActive = false;
+      latestFrameBytes = null;
+      latestFrameAt = null;
+      notifyListeners();
+    }
+  }
+
   Future<String?> fetchLatestImage() async {
     final base = _settings?.serverUrl ?? '';
     final apiKey = _settings?.apiKey ?? '';
@@ -855,6 +1006,7 @@ class GardenProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _stopCameraStreamWatchdog();
     _socket?.disconnect();
     _socket?.dispose();
     _esp32.close();

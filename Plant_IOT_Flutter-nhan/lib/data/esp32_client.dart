@@ -105,6 +105,42 @@ class Esp32Client {
     return _decodeMap(response);
   }
 
+  Future<Map<String, dynamic>> startCameraStream({
+    required String serverBase,
+    required String apiKey,
+    required String viewerId,
+    int fps = 8,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/camera/stream/start');
+    final response = await _client
+        .post(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode(<String, dynamic>{
+            'fps': fps,
+            'viewer_id': viewerId,
+          }),
+        )
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
+  Future<Map<String, dynamic>> stopCameraStream({
+    required String serverBase,
+    required String apiKey,
+    required String viewerId,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/camera/stream/stop');
+    final response = await _client
+        .post(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode(<String, dynamic>{'viewer_id': viewerId}),
+        )
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
   Future<Map<String, dynamic>> fetchRelayStatus({
     required String serverBase,
     required String apiKey,

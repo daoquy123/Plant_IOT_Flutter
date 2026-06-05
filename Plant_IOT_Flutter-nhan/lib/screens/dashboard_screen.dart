@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -13,10 +16,12 @@ import '../widgets/section_label.dart';
 Widget buildCameraStream(
   BuildContext context,
   String url, {
+  Uint8List? frameBytes,
   bool flipHorizontal = false,
   bool flipVertical = false,
 }) {
   final hasUrl = url.trim().isNotEmpty;
+  final hasFrame = frameBytes != null && frameBytes.isNotEmpty;
   Widget core = Stack(
     fit: StackFit.expand,
     children: [
@@ -33,11 +38,21 @@ Widget buildCameraStream(
           ),
         ),
       ),
-      if (hasUrl)
+      if (hasFrame)
+        Positioned.fill(
+          child: Image.memory(
+            frameBytes,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (context, error, stackTrace) =>
+                const SizedBox.shrink(),
+          ),
+        )
+      else if (hasUrl)
         Positioned.fill(
           child: Image.network(
             url,
-            fit: BoxFit.none,
+            fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) =>
                 const SizedBox.shrink(),
           ),
@@ -87,7 +102,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshEsp());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _refreshEsp();
+      if (!mounted) return;
+      unawaited(context.read<GardenProvider>().startCameraStream(fps: 8));
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(context.read<GardenProvider>().stopCameraStream());
+    super.dispose();
   }
 
   /// Trả về `true` nếu không có lỗi sau khi làm mới.
@@ -107,7 +132,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return true;
   }
 
-  void _openCameraFullscreen(String url) {
+  void _openCameraFullscreen(String url, Uint8List? frameBytes) {
     showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -124,6 +149,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 buildCameraStream(
                   ctx,
                   url,
+                  frameBytes: frameBytes,
                   flipHorizontal: _cameraFlipHorizontal,
                   flipVertical: _cameraFlipVertical,
                 ),
@@ -154,14 +180,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
             garden.latestImageUrl!.trim().isNotEmpty)
         ? garden.latestImageUrl!.trim()
         : settings.cameraUrl;
+    final liveFrameBytes = garden.latestFrameBytes;
     final statusLower = garden.gardenStatus.toLowerCase();
-    final connectionHealthy = (garden.lastError == null || garden.lastError!.isEmpty) &&
-        !statusLower.contains('mất kết nối') &&
-        !statusLower.contains('chưa kết nối');
+    final connectionHealthy =
+        (garden.lastError == null || garden.lastError!.isEmpty) &&
+            !statusLower.contains('mất kết nối') &&
+            !statusLower.contains('chưa kết nối');
     final cameraStatusText = connectionHealthy
-        ? (cameraUrl.trim().isNotEmpty
-            ? 'Đang hiển thị ảnh/luồng mới nhất từ server'
-            : 'Đã kết nối server, đang chờ ảnh camera mới')
+        ? (liveFrameBytes != null && liveFrameBytes.isNotEmpty
+            ? 'Đang hiển thị livestream từ ESP32-CAM'
+            : cameraUrl.trim().isNotEmpty
+                ? 'Đang hiển thị ảnh/luồng mới nhất từ server'
+                : 'Đã kết nối server, đang chờ ảnh camera mới')
         : 'Không kết nối được camera/server IoT';
     final cameraStatusColor = connectionHealthy ? scheme.primary : scheme.error;
 
@@ -197,6 +227,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 buildCameraStream(
                   context,
                   cameraUrl,
+                  frameBytes: liveFrameBytes,
                   flipHorizontal: _cameraFlipHorizontal,
                   flipVertical: _cameraFlipVertical,
                 ),
@@ -242,7 +273,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             _CameraActionChip(
                               icon: Icons.fullscreen_rounded,
                               label: 'Phóng to',
-                              onTap: () => _openCameraFullscreen(cameraUrl),
+                              onTap: () => _openCameraFullscreen(
+                                cameraUrl,
+                                liveFrameBytes,
+                              ),
                             ),
                             const SizedBox(width: 8),
                             _CameraActionChip(
@@ -301,7 +335,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 Expanded(
                                   child: Text(
                                     cameraStatusText,
-                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
                                           color: cameraStatusColor,
                                           fontWeight: FontWeight.w700,
                                         ),
