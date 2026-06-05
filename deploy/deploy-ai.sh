@@ -39,6 +39,7 @@ done
 
 echo "[4/5] PM2 restart AI..."
 mkdir -p logs
+export AI_LOG_LEVEL="${AI_LOG_LEVEL:-INFO}"
 pm2 delete plant-ai 2>/dev/null || true
 pm2 start "$ROOT_DIR/.venv/bin/uvicorn" \
   --name plant-ai \
@@ -47,6 +48,7 @@ pm2 start "$ROOT_DIR/.venv/bin/uvicorn" \
   -- \
   app.main:app --host 0.0.0.0 --port 8000 --workers 1
 pm2 save
+echo "AI_LOG_LEVEL=$AI_LOG_LEVEL"
 
 echo "[5/5] Health check..."
 sleep 3

@@ -1,8 +1,15 @@
+import logging
+import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import tensorflow as tf
+
+from app.logging_setup import configure_ai_logging
+
+configure_ai_logging()
+log = logging.getLogger("plant_ai.predict")
 
 from .model_vgg16_cbam import load_trained_model, IMG_SIZE, CLASS_NAMES
 from .model_resnet50_cbam import load_trained_model as load_resnet_model
@@ -39,20 +46,41 @@ class LeafHealthPredictor:
         img = tf.expand_dims(img, 0)
         return img
 
-    def predict(self, file_bytes: bytes) -> dict[str, Any]:
+    def predict(self, file_bytes: bytes, *, model_name: str = "vgg16") -> dict[str, Any]:
+        t0 = time.perf_counter()
         img_batch = self.preprocess_image(file_bytes)
+        preprocess_ms = (time.perf_counter() - t0) * 1000
+
+        t1 = time.perf_counter()
         preds = self.model.predict(img_batch, verbose=0)[0]
+        inference_ms = (time.perf_counter() - t1) * 1000
 
         idx = int(np.argmax(preds))
         prob = float(preds[idx])
         label = CLASS_NAMES[idx]
+        raw_probs = {CLASS_NAMES[i]: float(preds[i]) for i in range(len(CLASS_NAMES))}
+        top3 = sorted(raw_probs.items(), key=lambda item: item[1], reverse=True)[:3]
+        top3_text = ", ".join(f"{name}:{pct * 100:.1f}%" for name, pct in top3)
+
+        log.info(
+            "inference model=%s image_bytes=%d preprocess=%.0fms inference=%.0fms "
+            "label=%s label_vi=%s confidence=%.1f%% top3=[%s]",
+            model_name,
+            len(file_bytes),
+            preprocess_ms,
+            inference_ms,
+            label,
+            CLASS_LABELS_VI.get(label, label),
+            prob * 100,
+            top3_text,
+        )
 
         return {
             "label": label,
             "probability": prob,
             "label_vietnamese": CLASS_LABELS_VI.get(label, label),
             "explanation": EXPLANATIONS_VI.get(label, ""),
-            "raw_probs": {CLASS_NAMES[i]: float(preds[i]) for i in range(len(CLASS_NAMES))},
+            "raw_probs": raw_probs,
         }
 
 
@@ -82,9 +110,17 @@ class MultiModelLeafHealthPredictor:
         normalized = model_name.strip().lower() or "vgg16"
         predictor = self._cache.get(normalized)
         if predictor is None:
+            log.info("loading model=%s (cold start)...", normalized)
+            t0 = time.perf_counter()
             predictor = self._create_predictor(normalized)
             self._cache[normalized] = predictor
-        result = predictor.predict(file_bytes)
+            log.info(
+                "model=%s ready in %.0fms weights=%s",
+                normalized,
+                (time.perf_counter() - t0) * 1000,
+                predictor.weights_path,
+            )
+        result = predictor.predict(file_bytes, model_name=normalized)
         result["model"] = normalized
         return result
 
