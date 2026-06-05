@@ -266,7 +266,7 @@ class Esp32Client {
           headers: _buildHeaders(apiKey),
           body: jsonEncode(<String, dynamic>{}),
         )
-        .timeout(const Duration(seconds: 90));
+        .timeout(const Duration(seconds: 30));
     return _decodeMap(response);
   }
 

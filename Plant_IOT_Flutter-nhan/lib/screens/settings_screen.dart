@@ -206,7 +206,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             SnackBar(
                               content: Text(
                                 err == null
-                                    ? 'Đã chạy thử tưới — kiểm tra bơm và Gmail'
+                                    ? 'Đã gửi lệnh — bơm chạy ~60s, kiểm tra Gmail'
                                     : err,
                               ),
                             ),
@@ -236,7 +236,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             SnackBar(
                               content: Text(
                                 err == null
-                                    ? 'Đã gửi email — kiểm tra hộp thư'
+                                    ? 'Đã gửi lệnh email — kiểm tra hộp thư'
                                     : err,
                               ),
                             ),

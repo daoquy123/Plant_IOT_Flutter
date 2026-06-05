@@ -25,32 +25,40 @@ router.put('/auto-water', (req, res, next) => {
   });
 });
 
-/** Gửi thử một chu kỳ tưới (pump_on → chờ → pump_off). */
-router.post('/auto-water/test', (req, res, next) => {
+/** Gửi thử một chu kỳ tưới (pump_on → chờ → pump_off). Trả 202 ngay — tránh Nginx 504. */
+router.post('/auto-water/test', (req, res) => {
   const hooks = {
     io: req.app.locals.io,
     publishRelayState: req.app.locals.publishRelayState,
   };
-  runAutoWaterCycle('manual_test', hooks, { force: true })
-    .then((result) => res.json({ success: true, ...result }))
-    .catch(next);
+  res.status(202).json({
+    success: true,
+    started: true,
+    message: 'Đã bắt đầu chu kỳ tưới thử (~60s). Kiểm tra bơm và Gmail.',
+  });
+  runAutoWaterCycle('manual_test', hooks, { force: true }).catch((err) => {
+    console.error('[AUTO-WATER] Manual test failed:', err.message);
+  });
 });
 
-router.post('/reports/email/test', (req, res, next) => {
+router.post('/reports/email/test', (req, res) => {
   const slot = String(req.body?.slot || 'morning').toLowerCase() === 'evening'
     ? 'evening'
     : 'morning';
+  res.status(202).json({
+    success: true,
+    started: true,
+    message: 'Đã gửi yêu cầu email báo cáo. Kiểm tra hộp thư trong vài phút.',
+  });
   sendScheduledReport(slot)
     .then((result) => {
       if (result.skipped) {
-        return res.status(503).json({
-          success: false,
-          message: 'Email chưa cấu hình trên server (.env EMAIL_*)',
-        });
+        console.warn('[EMAIL] Test report skipped — not configured');
       }
-      return res.json({ success: true, ...result });
     })
-    .catch(next);
+    .catch((err) => {
+      console.error('[EMAIL] Test report failed:', err.message);
+    });
 });
 
 module.exports = router;
