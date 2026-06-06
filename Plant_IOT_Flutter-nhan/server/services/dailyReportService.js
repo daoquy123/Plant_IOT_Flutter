@@ -1,5 +1,6 @@
 const { getDb } = require('../config/database');
 const { sendMail, isEmailConfigured } = require('./emailService');
+const { adcToPercent } = require('./sensorAlertService');
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 
@@ -92,8 +93,8 @@ async function fetchReportStats(startIso, endIso) {
   return {
     avgTemperature: round1(sensorRow.avg_temperature),
     avgHumidity: round1(sensorRow.avg_humidity),
-    avgSoilMoisture: round1(sensorRow.avg_soil_moisture),
-    avgRain: round1(sensorRow.avg_rain),
+    avgSoilMoisture: adcToPercent(sensorRow.avg_soil_moisture),
+    avgRain: adcToPercent(sensorRow.avg_rain),
     sampleCount: Number(sensorRow.sample_count) || 0,
     pumpCount: Number(pumpRow.pump_count) || 0,
   };
@@ -109,9 +110,9 @@ function buildReportContent(window, stats) {
     `Báo cáo vườn thông minh — ${window.label}`,
     '',
     `Nhiệt độ trung bình: ${fmt(stats.avgTemperature, ' °C')}`,
-    `Độ ẩm đất trung bình: ${fmt(stats.avgSoilMoisture)}`,
+    `Độ ẩm đất trung bình: ${fmt(stats.avgSoilMoisture, ' %')}`,
     `Độ ẩm không khí trung bình: ${fmt(stats.avgHumidity, ' %')}`,
-    `Mưa trung bình: ${fmt(stats.avgRain)}`,
+    `Mưa (độ ẩm cảm biến mưa) trung bình: ${fmt(stats.avgRain, ' %')}`,
     `Số lần chạy bơm: ${stats.pumpCount}`,
     '',
     `Số mẫu cảm biến: ${stats.sampleCount}`,
@@ -123,9 +124,9 @@ function buildReportContent(window, stats) {
     <p><strong>${window.label}</strong></p>
     <table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse;font-family:sans-serif;">
       <tr><td>Nhiệt độ trung bình</td><td>${fmt(stats.avgTemperature, ' °C')}</td></tr>
-      <tr><td>Độ ẩm đất trung bình</td><td>${fmt(stats.avgSoilMoisture)}</td></tr>
+      <tr><td>Độ ẩm đất trung bình</td><td>${fmt(stats.avgSoilMoisture, ' %')}</td></tr>
       <tr><td>Độ ẩm không khí trung bình</td><td>${fmt(stats.avgHumidity, ' %')}</td></tr>
-      <tr><td>Mưa trung bình</td><td>${fmt(stats.avgRain)}</td></tr>
+      <tr><td>Mưa (độ ẩm cảm biến) trung bình</td><td>${fmt(stats.avgRain, ' %')}</td></tr>
       <tr><td>Số lần chạy bơm</td><td>${stats.pumpCount}</td></tr>
       <tr><td>Số mẫu cảm biến</td><td>${stats.sampleCount}</td></tr>
     </table>
