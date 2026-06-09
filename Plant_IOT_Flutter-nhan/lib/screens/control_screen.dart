@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../config/server_defaults.dart';
 import '../models/growing_cycle.dart';
 import '../providers/garden_provider.dart';
 import '../widgets/app_card.dart';
@@ -57,7 +58,7 @@ class _ControlScreenState extends State<ControlScreen> {
     });
   }
 
-  void startPumpSessionCountdown([int seconds = 60]) {
+  void startPumpSessionCountdown([int seconds = kPumpSessionSeconds]) {
     setState(() => pumpSessionLeft = seconds);
 
     _pumpTimer?.cancel();
@@ -241,14 +242,14 @@ class _ControlScreenState extends State<ControlScreen> {
 
                 const SizedBox(height: 12),
 
-                /// 💧 MÁY BƠM — một phiên 60s, hết phiên mới bật lại
+                /// 💧 MÁY BƠM — một phiên ${kPumpSessionSeconds}s, hết phiên mới bật lại
                 _ControlRow(
                   label: 'Máy bơm',
                   on: pumpSessionLeft > 0,
                   busy: garden.iotBusy || pumpSessionLeft > 0,
                   subtitle: pumpSessionLeft > 0
                       ? 'Đang tưới — còn ${pumpSessionLeft}s'
-                      : 'Sẵn sàng — mỗi phiên 60 giây',
+                      : 'Sẵn sàng — mỗi phiên $kPumpSessionSeconds giây',
                   onLabel: '${pumpSessionLeft}s',
                   offLabel: pumpSessionLeft > 0
                       ? '${pumpSessionLeft}s'
@@ -258,7 +259,7 @@ class _ControlScreenState extends State<ControlScreen> {
                     final gardenProvider = context.read<GardenProvider>();
                     final confirm = await showConfirm(
                       context,
-                      'Bắt đầu phiên tưới 60 giây?',
+                      'Bắt đầu phiên tưới $kPumpSessionSeconds giây?',
                     );
 
                     if (!confirm || !context.mounted) return;

@@ -37,7 +37,7 @@ class ChatDatabase {
             final now = DateTime.now().millisecondsSinceEpoch;
             final convId = await db.insert(_conversationsTable, {
               'title': 'Cuộc trò chuyện cũ',
-              'model': 'vgg16',
+              'model': 'resnet',
               'created_at': now,
               'updated_at': now,
             });
@@ -57,7 +57,7 @@ class ChatDatabase {
       CREATE TABLE $_conversationsTable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
-        model TEXT NOT NULL DEFAULT 'vgg16',
+        model TEXT NOT NULL DEFAULT 'resnet',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -91,7 +91,7 @@ class ChatDatabase {
 
   Future<ChatConversation> createConversation({
     String title = 'Cuộc trò chuyện mới',
-    String model = 'vgg16',
+    String model = 'resnet',
   }) async {
     final db = await database;
     final now = DateTime.now();

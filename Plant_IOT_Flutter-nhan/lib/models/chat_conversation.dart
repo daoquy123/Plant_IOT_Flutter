@@ -39,7 +39,7 @@ class ChatConversation {
     return ChatConversation(
       id: map['id'] as int,
       title: map['title'] as String,
-      model: map['model'] as String? ?? 'vgg16',
+      model: map['model'] as String? ?? 'resnet',
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int),
     );

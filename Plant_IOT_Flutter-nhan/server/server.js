@@ -26,6 +26,7 @@ const healthRoutes = require('./src/routes/health');
 const configRoutes = require('./src/routes/config');
 const settingsRoutes = require('./src/routes/settings');
 const growingCycleRoutes = require('./src/routes/growing_cycles');
+const chatRoutes = require('./src/routes/chat');
 const { insertReading } = require('./services/sensorService');
 const { createRelayState, getRelayStatus } = require('./services/relayService');
 const { startDailyEmailScheduler, stopDailyEmailScheduler } = require('./jobs/scheduleDailyEmail');
@@ -124,6 +125,7 @@ app.use('/api/relay', relayRoutes);
 app.use('/api/camera', cameraRoutes);
 app.use('/api/growing-cycles', growingCycleRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/chat', chatRoutes);
 
 app.use(errorHandler);
 

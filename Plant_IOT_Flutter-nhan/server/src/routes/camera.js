@@ -247,6 +247,30 @@ router.get('/latest', (req, res, next) => {
   });
 });
 
+/** ESP32 physical button — chụp ảnh, AI phân tích, trả về 2 dòng LCD. */
+router.post('/health-check', async (req, res, next) => {
+  try {
+    const { runHealthCheck } = require('../../services/healthCheckService');
+    const model = (req.body?.model || 'resnet').toString().trim() || 'resnet';
+    const deviceId = (req.body?.device_id || 'esp32_garden_main').toString().trim();
+    const payload = await runHealthCheck({
+      publishCameraCommand: req.app.locals.publishCameraCommand,
+      io: req.app.locals.io,
+      model,
+      deviceId,
+    });
+    return res.json({
+      success: true,
+      reply: payload.reply,
+      lcd: payload.lcd,
+      conversation_id: payload.conversation.id,
+      image_url: payload.image_url,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.get('/list', (req, res, next) => {
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
   const offset = Math.max(0, Number(req.query.offset) || 0);

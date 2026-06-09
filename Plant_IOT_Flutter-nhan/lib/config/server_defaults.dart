@@ -9,3 +9,6 @@ const String kDefaultAiServerUrl = 'http://103.116.38.192:8000';
 /// Relay IDs expected by the backend (`relay.js`): 1 = shade/màn che, 2 = pump/bơm.
 const int kRelayIdShade = 1;
 const int kRelayIdPump = 2;
+
+/// Thời lượng một phiên tưới thủ công (giây) — đồng bộ UI và `pump_start`.
+const int kPumpSessionSeconds = 30;

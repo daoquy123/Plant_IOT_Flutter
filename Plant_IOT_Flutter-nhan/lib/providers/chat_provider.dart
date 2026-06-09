@@ -60,7 +60,7 @@ class ChatProvider extends ChangeNotifier {
     return null;
   }
 
-  String get selectedModel => activeConversation?.model ?? 'vgg16';
+  String get selectedModel => activeConversation?.model ?? 'resnet';
 
   void attachSettings(SettingsProvider settings) {
     _settings = settings;
@@ -318,6 +318,84 @@ class ChatProvider extends ChangeNotifier {
       messages.add(aiRow);
       _touchConversation(convId);
       return reply;
+    } catch (e) {
+      lastError = e.toString();
+      return null;
+    } finally {
+      sending = false;
+      notifyListeners();
+    }
+  }
+
+  /// Gọi POST /api/camera/health-check — server chụp ảnh + AI (giống nút ESP32).
+  Future<String?> runServerHealthCheck({GardenProvider? garden}) async {
+    final resolvedModel = selectedModel;
+    final serverBase = _settings?.serverUrl.trim() ?? '';
+    final apiKey = _settings?.apiKey.trim() ?? '';
+    if (serverBase.isEmpty || apiKey.isEmpty) {
+      lastError = 'Thiếu URL server IoT hoặc API key trong Cài đặt';
+      notifyListeners();
+      return null;
+    }
+
+    sending = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final convId = await _ensureConversationId();
+      final userText = '[Kiểm tra sức khỏe cây - $resolvedModel]';
+
+      final map = await _esp32.requestHealthCheck(
+        serverBase: serverBase,
+        apiKey: apiKey,
+        model: resolvedModel,
+      );
+      final reply = map['reply']?.toString().trim() ?? '';
+      if (reply.isEmpty) {
+        lastError = 'Server không trả kết quả phân tích.';
+        return null;
+      }
+
+      String? previewImagePath;
+      final rawImageUrl = map['image_url']?.toString().trim();
+      if (rawImageUrl != null && rawImageUrl.isNotEmpty) {
+        try {
+          final imageUrl = _normalizeImageUrl(
+            serverBase: serverBase,
+            rawUrl: _cacheBustUrl(rawImageUrl),
+          );
+          final imageBytes = await _downloadImageBytes(imageUrl);
+          final flippedBytes = await _flipImageVertically(imageBytes);
+          previewImagePath = await _savePreviewImageBytes(flippedBytes);
+          if (garden != null) {
+            garden.latestImageUrl = imageUrl;
+            garden.notifyListeners();
+          }
+        } catch (e) {
+          debugPrint('Health check image preview failed: $e');
+        }
+      }
+
+      final userRow = await _db.insertMessage(
+        conversationId: convId,
+        text: userText,
+        senderType: SenderType.user,
+        localImagePath: previewImagePath,
+      );
+      messages.add(userRow);
+      await _maybeRenameConversation(convId, userText);
+
+      final aiRow = await _db.insertMessage(
+        conversationId: convId,
+        text: reply,
+        senderType: SenderType.ai,
+      );
+      messages.add(aiRow);
+      _touchConversation(convId);
+      return reply;
+    } on Esp32HttpException catch (e) {
+      lastError = e.toString();
+      rethrow;
     } catch (e) {
       lastError = e.toString();
       return null;

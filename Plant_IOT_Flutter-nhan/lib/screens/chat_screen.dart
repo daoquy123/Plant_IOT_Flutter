@@ -59,30 +59,30 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() => _healthCheckBusy = true);
     try {
-      final imageUrl = await garden.waitForNewCameraImageAfterRequest();
+      final reply = await chat.runServerHealthCheck(garden: garden);
       if (!mounted) return;
-      if (imageUrl == null || imageUrl.trim().isEmpty) {
+      if (reply == null || reply.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Không nhận được ảnh mới từ camera. Kiểm tra ESP32-CAM, Nginx/socket.io và thử lại.',
+              chat.lastError ??
+                  'Không phân tích được ảnh. Kiểm tra ESP32-CAM, AI server và pm2.',
             ),
           ),
         );
         return;
       }
 
-      final reply = await chat.analyzeCurrentCameraImage(
-        preferredImageUrl: imageUrl.trim(),
+      garden.setAiAnalysisFromServer(reply.trim());
+      await notifications.add(
+        title: 'Phân tích AI',
+        body: reply.trim(),
       );
+    } catch (e) {
       if (!mounted) return;
-      if (reply != null && reply.trim().isNotEmpty) {
-        garden.setAiAnalysisFromServer(reply.trim());
-        await notifications.add(
-          title: 'Phân tích AI',
-          body: reply.trim(),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
     } finally {
       if (mounted) setState(() => _healthCheckBusy = false);
     }

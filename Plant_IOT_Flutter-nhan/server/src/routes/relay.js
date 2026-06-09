@@ -57,7 +57,8 @@ router.post('/', (req, res, next) => {
       io: req.app.locals.io,
       publishRelayState: req.app.locals.publishRelayState,
     };
-    const durationSeconds = sessionDurationSeconds(config.PUMP_SESSION_SECONDS);
+    const durationSeconds = sessionDurationSeconds(body.duration_seconds);
+    const triggeredBy = body.triggered_by || 'app_action';
 
     res.status(202).json({
       success: true,
@@ -66,7 +67,7 @@ router.post('/', (req, res, next) => {
       message: `Đã bắt đầu phiên tưới ${durationSeconds}s.`,
     });
 
-    runPumpSession('app_action', hooks, { durationSeconds }).catch((err) => {
+    runPumpSession(triggeredBy, hooks, { durationSeconds }).catch((err) => {
       console.error('[PUMP-SESSION] Manual session failed:', err.message);
     });
     return;

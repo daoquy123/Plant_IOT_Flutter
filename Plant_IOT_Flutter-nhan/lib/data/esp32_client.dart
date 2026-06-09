@@ -105,6 +105,27 @@ class Esp32Client {
     return _decodeMap(response);
   }
 
+  /// Chụp ảnh ESP32-CAM + AI phân tích (cùng luồng với nút vật lý ESP32).
+  Future<Map<String, dynamic>> requestHealthCheck({
+    required String serverBase,
+    required String apiKey,
+    String model = 'resnet',
+    String deviceId = 'esp32_garden_main',
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/camera/health-check');
+    final response = await _client
+        .post(
+          uri,
+          headers: _buildHeaders(apiKey),
+          body: jsonEncode({
+            'model': model,
+            'device_id': deviceId,
+          }),
+        )
+        .timeout(const Duration(seconds: 90));
+    return _decodeMap(response);
+  }
+
   Future<Map<String, dynamic>> startCameraStream({
     required String serverBase,
     required String apiKey,
@@ -314,6 +335,10 @@ class Esp32HttpException implements Exception {
     }
     if (statusCode == 404) {
       return 'Không tìm thấy API trên server (404). Cần cập nhật backend.';
+    }
+    if (statusCode == 502 || statusCode == 503) {
+      return 'Server Node.js không phản hồi ($statusCode). '
+          'SSH vào VPS và chạy: pm2 restart plant-iot';
     }
     if (body.length > 120) {
       return 'Lỗi server ($statusCode).';

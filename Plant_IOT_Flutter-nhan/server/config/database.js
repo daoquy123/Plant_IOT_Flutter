@@ -205,7 +205,28 @@ function ensureColumnAndIndex(database, table, column, definition, indexSql) {
   });
 }
 
+function ensureChatTables(database) {
+  database.run(`
+    CREATE TABLE IF NOT EXISTS chat_conversations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT,
+      model TEXT,
+      source TEXT,
+      device_id TEXT,
+      image_url TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `, (err) => {
+    if (err) {
+      console.error('Error creating chat_conversations:', err.message);
+    }
+  });
+  addColumnIfMissing(database, 'chat_messages', 'conversation_id', 'INTEGER');
+}
+
 function runSchemaUpgrades(database) {
+  ensureChatTables(database);
   addColumnIfMissing(database, 'sensor_readings', 'raw_payload', 'TEXT');
   addColumnIfMissing(database, 'sensor_readings', 'source', 'TEXT');
   addColumnIfMissing(database, 'relay_states', 'relay_type', 'TEXT');

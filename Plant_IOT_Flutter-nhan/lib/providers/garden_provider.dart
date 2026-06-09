@@ -1045,7 +1045,7 @@ class GardenProvider extends ChangeNotifier {
     }
   }
 
-  /// Gọi khi hết 60s trên UI hoặc hủy phiên.
+  /// Gọi khi hết phiên tưới trên UI hoặc hủy phiên.
   Future<void> completePumpSession({bool cancelled = false}) async {
     if (!_manualPumpSessionActive && !_legacyPumpOffPending) return;
 
@@ -1079,6 +1079,7 @@ class GardenProvider extends ChangeNotifier {
         serverBase: base,
         apiKey: apiKey,
         action: 'pump_start',
+        extra: {'duration_seconds': kPumpSessionSeconds},
       );
       unawaited(refreshWaterTodayCount());
       return true;
