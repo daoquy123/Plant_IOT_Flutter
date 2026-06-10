@@ -15,6 +15,8 @@ const {
   getWateringPlan,
   runNightlySoilMoistureCheck,
 } = require('../../services/soilMoisturePlanService');
+const { runNightlyLeafHealthCheck } = require('../../services/leafHealthPlanService');
+const { runHourlyLeafAnalysis } = require('../../jobs/scheduleLeafAnalysis');
 
 const router = express.Router();
 
@@ -139,10 +141,24 @@ router.post('/watering-plan/check', (req, res) => {
   res.status(202).json({
     success: true,
     started: true,
-    message: 'Đã chạy kiểm tra ẩm đất TB hôm nay (logic 22:00).',
+    message: 'Đã chạy kiểm tra ẩm đất + sức khỏe lá (logic 22:00).',
   });
   runNightlySoilMoistureCheck().catch((err) => {
     console.error('[SOIL-PLAN] Manual check failed:', err.message);
+  });
+  runNightlyLeafHealthCheck().catch((err) => {
+    console.error('[LEAF-PLAN] Manual check failed:', err.message);
+  });
+});
+
+router.post('/leaf-health/scan', (req, res) => {
+  res.status(202).json({
+    success: true,
+    started: true,
+    message: 'Đã chạy phân tích lá ngay (ghi log cho đếm 22:00).',
+  });
+  runHourlyLeafAnalysis().catch((err) => {
+    console.error('[LEAF-SCAN] Manual scan failed:', err.message);
   });
 });
 

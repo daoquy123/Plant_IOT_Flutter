@@ -153,6 +153,20 @@ function runMigrations() {
       value TEXT NOT NULL,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS leaf_analysis_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL,
+      label_vietnamese TEXT,
+      confidence REAL,
+      model TEXT,
+      source TEXT,
+      device_id TEXT,
+      analyzed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_leaf_analysis_analyzed_at ON leaf_analysis_log(analyzed_at);
+    CREATE INDEX IF NOT EXISTS idx_leaf_analysis_label ON leaf_analysis_log(label);
   `;
 
   database.exec(migrations, (err) => {

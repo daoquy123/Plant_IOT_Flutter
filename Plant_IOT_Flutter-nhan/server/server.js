@@ -37,6 +37,10 @@ const {
   startSoilMoisturePlanScheduler,
   stopSoilMoisturePlanScheduler,
 } = require('./jobs/scheduleSoilMoisturePlan');
+const {
+  startLeafAnalysisScheduler,
+  stopLeafAnalysisScheduler,
+} = require('./jobs/scheduleLeafAnalysis');
 
 const UPLOADS_DIR = path.resolve(__dirname, config.UPLOADS_DIR);
 const LOGS_DIR = path.resolve(__dirname, 'logs');
@@ -322,6 +326,7 @@ const serverInstance = server.listen(PORT, HOST, () => {
   startSensorAlertScheduler();
   startPestAlertScheduler();
   startSoilMoisturePlanScheduler();
+  startLeafAnalysisScheduler();
 });
 
 const cleanupTimer = setInterval(() => {
@@ -350,6 +355,7 @@ function shutdown(signal) {
   stopSensorAlertScheduler();
   stopPestAlertScheduler();
   stopSoilMoisturePlanScheduler();
+  stopLeafAnalysisScheduler();
   clearInterval(cleanupTimer);
   clearInterval(streamWatchdogTimer);
   serverInstance.close(() => {

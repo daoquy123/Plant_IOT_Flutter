@@ -63,6 +63,10 @@ const config = {
   SENSOR_ALERT_RAIN_MAX: Number(process.env.SENSOR_ALERT_RAIN_MAX || 85),
   SENSOR_ALERT_HUMIDITY_MIN: Number(process.env.SENSOR_ALERT_HUMIDITY_MIN || 45),
   SENSOR_ALERT_HUMIDITY_MAX: Number(process.env.SENSOR_ALERT_HUMIDITY_MAX || 85),
+  /** Lá vàng+ trong ngày để tăng tưới (kiểm tra 22:00). */
+  LEAF_HEALTH_MIN_UNHEALTHY_COUNT: Number(process.env.LEAF_HEALTH_MIN_UNHEALTHY_COUNT || 10),
+  /** Ẩm đất TB phải ≤ SOIL_MIN + offset mới tăng tưới vì lá xấu. */
+  LEAF_HEALTH_SOIL_MAX_OFFSET: Number(process.env.LEAF_HEALTH_SOIL_MAX_OFFSET || 15),
 };
 
 function validateEnv() {

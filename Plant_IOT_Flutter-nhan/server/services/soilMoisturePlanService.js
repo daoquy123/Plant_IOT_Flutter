@@ -8,12 +8,15 @@ const {
   fmt,
 } = require('./dailyReportService');
 const {
+  getWateringBoostSoilActiveAsync,
+  setWateringBoostSoilActiveAsync,
   getWateringBoostActiveAsync,
-  setWateringBoostActiveAsync,
+  getWateringBoostLeafActiveAsync,
   getWateringSessionsPerDayAsync,
   NORMAL_WATERING_SESSIONS,
   BOOST_WATERING_SESSIONS,
 } = require('./settingsService');
+const { getLeafHealthPlanSummary } = require('./leafHealthPlanService');
 
 function buildDayReportLines(dateKey, stats) {
   const label = formatDateLabel(dateKey);
@@ -111,11 +114,11 @@ async function runNightlySoilMoistureCheck({ dateKey = null } = {}) {
   }
 
   const threshold = config.SENSOR_ALERT_SOIL_MIN;
-  const boostActive = await getWateringBoostActiveAsync();
+  const boostSoilActive = await getWateringBoostSoilActiveAsync();
   const isLow = stats.avgSoilMoisture < threshold;
   const isOk = stats.avgSoilMoisture >= threshold;
 
-  if (boostActive) {
+  if (boostSoilActive) {
     if (!isOk) {
       return {
         skipped: true,
@@ -125,7 +128,7 @@ async function runNightlySoilMoistureCheck({ dateKey = null } = {}) {
       };
     }
     if (isOk) {
-      await setWateringBoostActiveAsync(false);
+      await setWateringBoostSoilActiveAsync(false);
       if (isEmailConfigured()) {
         await sendBoostRevertedEmail(todayKey, stats);
       }
@@ -140,7 +143,7 @@ async function runNightlySoilMoistureCheck({ dateKey = null } = {}) {
       };
     }
   } else if (isLow) {
-    await setWateringBoostActiveAsync(true);
+    await setWateringBoostSoilActiveAsync(true);
     if (isEmailConfigured()) {
       await sendBoostActivatedEmail(todayKey, stats);
     }
@@ -164,10 +167,18 @@ async function runNightlySoilMoistureCheck({ dateKey = null } = {}) {
 }
 
 async function getWateringPlan() {
-  const boostActive = await getWateringBoostActiveAsync();
-  const sessionsPerDay = await getWateringSessionsPerDayAsync();
+  const [boostActive, boostSoilActive, boostLeafActive, sessionsPerDay, leafSummary] =
+    await Promise.all([
+      getWateringBoostActiveAsync(),
+      getWateringBoostSoilActiveAsync(),
+      getWateringBoostLeafActiveAsync(),
+      getWateringSessionsPerDayAsync(),
+      getLeafHealthPlanSummary(),
+    ]);
   return {
     boostActive,
+    boostSoilActive,
+    boostLeafActive,
     sessionsPerDay,
     normalSessions: NORMAL_WATERING_SESSIONS,
     boostSessions: BOOST_WATERING_SESSIONS,
@@ -175,6 +186,7 @@ async function getWateringPlan() {
     schedule: boostActive
       ? ['06:00', '12:00', '17:00']
       : ['06:00', '17:00'],
+    leafHealth: leafSummary,
   };
 }
 

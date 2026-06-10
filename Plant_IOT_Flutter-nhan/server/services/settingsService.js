@@ -5,6 +5,8 @@ const SENSOR_ALERT_KEY = 'sensor_alert';
 const LEGACY_EMAIL_REPORT_KEY = 'email_report';
 const PEST_ALERT_KEY = 'pest_alert';
 const WATERING_BOOST_KEY = 'watering_boost_active';
+const WATERING_BOOST_SOIL_KEY = 'watering_boost_soil';
+const WATERING_BOOST_LEAF_KEY = 'watering_boost_leaf';
 
 const NORMAL_WATERING_SESSIONS = 2;
 const BOOST_WATERING_SESSIONS = 3;
@@ -91,15 +93,46 @@ function setPestAlertEnabled(enabled, callback) {
   setSetting(PEST_ALERT_KEY, enabled ? 'true' : 'false', callback);
 }
 
-function getWateringBoostActive(callback) {
-  getSetting(WATERING_BOOST_KEY, (err, raw) => {
+function getWateringBoostSoilActive(callback) {
+  getSetting(WATERING_BOOST_SOIL_KEY, (err, raw) => {
+    if (err) return callback(err);
+    if (raw != null && raw !== '') {
+      return callback(null, parseEnabled(raw, false));
+    }
+    getSetting(WATERING_BOOST_KEY, (legacyErr, legacyRaw) => {
+      if (legacyErr) return callback(legacyErr);
+      callback(null, parseEnabled(legacyRaw, false));
+    });
+  });
+}
+
+function setWateringBoostSoilActive(enabled, callback) {
+  setSetting(WATERING_BOOST_SOIL_KEY, enabled ? 'true' : 'false', callback);
+}
+
+function getWateringBoostLeafActive(callback) {
+  getSetting(WATERING_BOOST_LEAF_KEY, (err, raw) => {
     if (err) return callback(err);
     callback(null, parseEnabled(raw, false));
   });
 }
 
+function setWateringBoostLeafActive(enabled, callback) {
+  setSetting(WATERING_BOOST_LEAF_KEY, enabled ? 'true' : 'false', callback);
+}
+
+function getWateringBoostActive(callback) {
+  getWateringBoostSoilActive((soilErr, soilBoost) => {
+    if (soilErr) return callback(soilErr);
+    getWateringBoostLeafActive((leafErr, leafBoost) => {
+      if (leafErr) return callback(leafErr);
+      callback(null, !!(soilBoost || leafBoost));
+    });
+  });
+}
+
 function setWateringBoostActive(enabled, callback) {
-  setSetting(WATERING_BOOST_KEY, enabled ? 'true' : 'false', callback);
+  setWateringBoostSoilActive(enabled, callback);
 }
 
 function getAutoWaterEnabledAsync() {
@@ -156,6 +189,42 @@ function setPestAlertEnabledAsync(enabled) {
   });
 }
 
+function getWateringBoostSoilActiveAsync() {
+  return new Promise((resolve, reject) => {
+    getWateringBoostSoilActive((err, enabled) => {
+      if (err) reject(err);
+      else resolve(enabled);
+    });
+  });
+}
+
+function setWateringBoostSoilActiveAsync(enabled) {
+  return new Promise((resolve, reject) => {
+    setWateringBoostSoilActive(enabled, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function getWateringBoostLeafActiveAsync() {
+  return new Promise((resolve, reject) => {
+    getWateringBoostLeafActive((err, enabled) => {
+      if (err) reject(err);
+      else resolve(enabled);
+    });
+  });
+}
+
+function setWateringBoostLeafActiveAsync(enabled) {
+  return new Promise((resolve, reject) => {
+    setWateringBoostLeafActive(enabled, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 function getWateringBoostActiveAsync() {
   return new Promise((resolve, reject) => {
     getWateringBoostActive((err, enabled) => {
@@ -166,12 +235,7 @@ function getWateringBoostActiveAsync() {
 }
 
 function setWateringBoostActiveAsync(enabled) {
-  return new Promise((resolve, reject) => {
-    setWateringBoostActive(enabled, (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
+  return setWateringBoostSoilActiveAsync(enabled);
 }
 
 async function getWateringSessionsPerDayAsync() {
@@ -194,6 +258,14 @@ module.exports = {
   setPestAlertEnabledAsync,
   getWateringBoostActive,
   setWateringBoostActive,
+  getWateringBoostSoilActive,
+  setWateringBoostSoilActive,
+  getWateringBoostLeafActive,
+  setWateringBoostLeafActive,
+  getWateringBoostSoilActiveAsync,
+  setWateringBoostSoilActiveAsync,
+  getWateringBoostLeafActiveAsync,
+  setWateringBoostLeafActiveAsync,
   getWateringBoostActiveAsync,
   setWateringBoostActiveAsync,
   getWateringSessionsPerDayAsync,

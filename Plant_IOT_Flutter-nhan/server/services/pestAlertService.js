@@ -9,6 +9,7 @@ const {
   getSettingAsync,
   setSettingAsync,
 } = require('./settingsService');
+const { recordFromPredictResult } = require('./leafAnalysisService');
 
 const LAST_SENT_KEY = 'pest_alert_last_sent';
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -139,11 +140,6 @@ async function checkAndSendPestAlert({ force = false } = {}) {
     return { skipped: true, reason: 'email_not_configured' };
   }
 
-  const lastSent = await getLastPestAlertSentAt();
-  if (!force && lastSent != null && Date.now() - lastSent < ONE_HOUR_MS) {
-    return { skipped: true, reason: 'rate_limited' };
-  }
-
   const image = await loadLatestCameraImageBytes();
   if (!image) {
     return { skipped: true, reason: 'no_image' };
@@ -158,10 +154,27 @@ async function checkAndSendPestAlert({ force = false } = {}) {
   }
 
   const { result } = prediction;
+  await recordFromPredictResult({
+    result,
+    model: PEST_MODEL,
+    source: 'pest_alert',
+  }).catch((err) => {
+    console.error('[PEST-ALERT] Failed to log leaf analysis:', err.message);
+  });
+
   if (!isPestPrediction(result)) {
     return {
       skipped: true,
       reason: 'no_pest',
+      label: result?.label ?? result?.label_vietnamese,
+    };
+  }
+
+  const lastSent = await getLastPestAlertSentAt();
+  if (!force && lastSent != null && Date.now() - lastSent < ONE_HOUR_MS) {
+    return {
+      skipped: true,
+      reason: 'rate_limited',
       label: result?.label ?? result?.label_vietnamese,
     };
   }
@@ -216,5 +229,6 @@ module.exports = {
   checkAndSendPestAlert,
   isPestPrediction,
   loadLatestCameraImageBytes,
+  predictWithResNet,
   PEST_CLASS_LABELS,
 };

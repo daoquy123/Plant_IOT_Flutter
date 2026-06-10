@@ -518,7 +518,7 @@ class ChatProvider extends ChangeNotifier {
     if (rain != null && rain >= 75) remainingToday = 0;
 
     final scheduleLine = garden.wateringBoostActive
-        ? 'Lịch tự động: 6:00, 12:00, 17:00 (tăng do ẩm đất TB thấp).'
+        ? 'Lịch tự động: 6:00, 12:00, 17:00 (tăng do ẩm đất thấp hoặc lá vàng+ nhiều).'
         : 'Lịch tự động: 6:00 và 17:00.';
 
     return [
@@ -527,7 +527,7 @@ class ChatProvider extends ChangeNotifier {
       '- Còn lại hôm nay: $remainingToday',
       scheduleLine,
       if (garden.wateringBoostActive)
-        'Hệ thống đang tăng tưới lên 3 lần/ngày vì ẩm đất trung bình dưới ngưỡng an toàn.',
+        'Hệ thống đang tăng tưới lên 3 lần/ngày (ẩm đất thấp hoặc ≥10 lần phân tích lá vàng+ trong ngày).',
       'Lưu ý: Nên tưới vào sáng, trưa (nếu có), chiều; hạn chế tưới lúc nắng gắt.',
       '',
       'Thông số phân tích:',

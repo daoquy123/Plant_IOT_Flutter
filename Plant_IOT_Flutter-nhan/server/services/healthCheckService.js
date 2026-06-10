@@ -3,6 +3,7 @@ const path = require('path');
 const { config } = require('../config/env');
 const { getLatestImage } = require('./cameraService');
 const { createConversation, insertMessage } = require('./chatService');
+const { recordFromPredictResult } = require('./leafAnalysisService');
 
 const DEFAULT_MODEL = 'resnet';
 const CAPTURE_TIMEOUT_MS = 25000;
@@ -149,6 +150,17 @@ async function runHealthCheck({
   }
 
   const predictJson = await predictImageFile(image.filepath, model);
+  const predictResult = predictJson?.result && typeof predictJson.result === 'object'
+    ? predictJson.result
+    : predictJson;
+  await recordFromPredictResult({
+    result: predictResult,
+    model,
+    source: 'esp32_health_check',
+    deviceId,
+  }).catch((err) => {
+    console.error('[HEALTH-CHECK] Failed to log leaf analysis:', err.message);
+  });
   const reply = formatPredictReply(predictJson, model);
   const lcd = buildLcdLines(reply);
   const imageUrl = image.public_url || null;
