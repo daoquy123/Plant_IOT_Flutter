@@ -80,14 +80,27 @@ async function loadLatestCameraImageBytes() {
   return null;
 }
 
+function mimeForImageFilename(filename) {
+  const ext = path.extname(filename || '').toLowerCase();
+  if (ext === '.png') return 'image/png';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  return 'image/jpeg';
+}
+
 async function predictWithResNet(imageBytes, filename) {
   const predictUrl = resolvePredictUrl();
   if (!predictUrl) {
     throw new Error('AI_SERVER_URL chưa cấu hình');
   }
+  if (!imageBytes || !Buffer.isBuffer(imageBytes) || imageBytes.length < 100) {
+    throw new Error('Ảnh camera không hợp lệ hoặc rỗng');
+  }
 
+  const safeName = filename || 'camera.jpg';
   const form = new FormData();
-  form.append('file', new Blob([imageBytes]), filename || 'camera.jpg');
+  const blob = new Blob([imageBytes], { type: mimeForImageFilename(safeName) });
+  form.append('file', blob, safeName);
   form.append('model', PEST_MODEL);
 
   const response = await fetch(predictUrl, {
