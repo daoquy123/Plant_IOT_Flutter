@@ -317,6 +317,17 @@ class Esp32Client {
     _decodeMap(response);
   }
 
+  Future<Map<String, dynamic>> fetchWateringPlan({
+    required String serverBase,
+    required String apiKey,
+  }) async {
+    final uri = _resolveBase(serverBase, '/api/settings/watering-plan');
+    final response = await _client
+        .get(uri, headers: _buildHeaders(apiKey))
+        .timeout(_httpTimeout);
+    return _decodeMap(response);
+  }
+
   void close() => _client.close();
 }
 

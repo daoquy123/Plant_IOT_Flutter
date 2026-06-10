@@ -417,6 +417,7 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await garden.refreshWaterTodayCount();
+      await garden.refreshWateringPlan();
       await garden.refreshActiveGrowingCycle();
 
       final convId = await _ensureConversationId();
@@ -509,16 +510,25 @@ class ChatProvider extends ChangeNotifier {
     final humid = garden.airHumidityPct;
     final rain = garden.rainPercent;
     final pumpCount = garden.waterTodayCount;
+    final standardPerDay = garden.wateringSessionsPerDay;
 
-    const standardPerDay = 2;
-    var remainingToday = (standardPerDay - pumpCount).clamp(0, standardPerDay);
+    var remainingToday =
+        (standardPerDay - pumpCount).clamp(0, standardPerDay);
     if (soil != null && soil >= 70) remainingToday = 0;
     if (rain != null && rain >= 75) remainingToday = 0;
 
+    final scheduleLine = garden.wateringBoostActive
+        ? 'Lịch tự động: 6:00, 12:00, 17:00 (tăng do ẩm đất TB thấp).'
+        : 'Lịch tự động: 6:00 và 17:00.';
+
     return [
       'Gợi ý lịch tưới:',
-      '- Chu kỳ đề xuất hôm nay: $remainingToday',
-      'Lưu ý: Nên tưới vào sáng, chiều; hạn chế tưới lúc nắng gắt.',
+      '- Số lần tưới đề xuất hôm nay: $standardPerDay',
+      '- Còn lại hôm nay: $remainingToday',
+      scheduleLine,
+      if (garden.wateringBoostActive)
+        'Hệ thống đang tăng tưới lên 3 lần/ngày vì ẩm đất trung bình dưới ngưỡng an toàn.',
+      'Lưu ý: Nên tưới vào sáng, trưa (nếu có), chiều; hạn chế tưới lúc nắng gắt.',
       '',
       'Thông số phân tích:',
       '- Ẩm đất hiện tại: ${soil?.toString() ?? '—'}%',

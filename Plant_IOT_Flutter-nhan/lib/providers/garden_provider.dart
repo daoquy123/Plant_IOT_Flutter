@@ -180,6 +180,8 @@ class GardenProvider extends ChangeNotifier {
   bool _manualPumpSessionActive = false;
   bool _legacyPumpOffPending = false;
   int waterTodayCount = 0;
+  int wateringSessionsPerDay = 2;
+  bool wateringBoostActive = false;
   /// Tăng mỗi khi đồng bộ lại số lần bơm — Biểu đồ listen để reload.
   int pumpStatsRevision = 0;
   Timer? _pumpStatsRefreshTimer;
@@ -496,6 +498,31 @@ class GardenProvider extends ChangeNotifier {
     _pumpStatsRefreshTimer = Timer(const Duration(milliseconds: 800), () {
       unawaited(refreshWaterTodayCount());
     });
+  }
+
+  /// Lịch tưới đề xuất từ server (2 hoặc 3 lần/ngày khi ẩm đất TB thấp).
+  Future<void> refreshWateringPlan() async {
+    final base = _settings?.serverUrl.trim() ?? '';
+    final apiKey = _settings?.apiKey.trim() ?? '';
+    if (base.isEmpty || apiKey.isEmpty) return;
+
+    try {
+      final map = await _esp32.fetchWateringPlan(
+        serverBase: base,
+        apiKey: apiKey,
+      );
+      final sessions = map['sessionsPerDay'];
+      final boost = map['boostActive'] == true;
+      final newSessions = sessions is num ? sessions.round() : 2;
+      if (newSessions != wateringSessionsPerDay ||
+          boost != wateringBoostActive) {
+        wateringSessionsPerDay = newSessions.clamp(2, 3);
+        wateringBoostActive = boost;
+        notifyListeners();
+      }
+    } catch (_) {
+      // Giữ giá trị local nếu API lỗi.
+    }
   }
 
   /// Đồng bộ số lần bơm hôm nay từ `pump_runs` trên server (giống tab Biểu đồ).

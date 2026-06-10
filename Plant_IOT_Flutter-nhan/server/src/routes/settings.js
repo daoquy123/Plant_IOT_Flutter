@@ -11,6 +11,10 @@ const { runAutoWaterCycle } = require('../../services/autoWaterService');
 const { sendScheduledReport } = require('../../services/dailyReportService');
 const { checkAndSendSensorAlert } = require('../../services/sensorAlertService');
 const { checkAndSendPestAlert } = require('../../services/pestAlertService');
+const {
+  getWateringPlan,
+  runNightlySoilMoistureCheck,
+} = require('../../services/soilMoisturePlanService');
 
 const router = express.Router();
 
@@ -119,6 +123,26 @@ router.post('/auto-water/test', (req, res) => {
   });
   runAutoWaterCycle('manual_test', hooks, { force: true }).catch((err) => {
     console.error('[AUTO-WATER] Manual test failed:', err.message);
+  });
+});
+
+router.get('/watering-plan', async (req, res, next) => {
+  try {
+    const plan = await getWateringPlan();
+    res.json({ success: true, ...plan });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/watering-plan/check', (req, res) => {
+  res.status(202).json({
+    success: true,
+    started: true,
+    message: 'Đã chạy kiểm tra ẩm đất TB hôm nay (logic 22:00).',
+  });
+  runNightlySoilMoistureCheck().catch((err) => {
+    console.error('[SOIL-PLAN] Manual check failed:', err.message);
   });
 });
 

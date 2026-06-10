@@ -13,6 +13,7 @@ function vnNowLabel() {
 
 function slotLabel(slot) {
   if (slot === 'morning') return '6:00 sáng';
+  if (slot === 'noon') return '12:00 trưa';
   if (slot === 'afternoon') return '17:00 chiều';
   return slot;
 }

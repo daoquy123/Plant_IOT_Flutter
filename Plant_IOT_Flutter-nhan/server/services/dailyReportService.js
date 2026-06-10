@@ -68,6 +68,15 @@ function queryOne(db, sql, params) {
   });
 }
 
+/** Thống kê cả ngày theo lịch VN (00:00–24:00). */
+async function fetchDayStats(dateKey) {
+  const startIso = vnToUtcIso(dateKey, 0);
+  const endDate = new Date(`${dateKey}T00:00:00+07:00`);
+  endDate.setUTCDate(endDate.getUTCDate() + 1);
+  const endIso = endDate.toISOString();
+  return fetchReportStats(startIso, endIso);
+}
+
 async function fetchReportStats(startIso, endIso) {
   const db = getDb();
   const sensorRow = await queryOne(
@@ -157,8 +166,14 @@ async function sendScheduledReport(slot) {
 }
 
 module.exports = {
+  vnNow,
+  vnDateKey,
+  formatDateLabel,
+  vnToUtcIso,
   reportWindowForSlot,
   fetchReportStats,
+  fetchDayStats,
   buildReportContent,
   sendScheduledReport,
+  fmt,
 };

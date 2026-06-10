@@ -33,6 +33,10 @@ const { startDailyEmailScheduler, stopDailyEmailScheduler } = require('./jobs/sc
 const { startAutoWaterScheduler, stopAutoWaterScheduler } = require('./jobs/scheduleAutoWater');
 const { startSensorAlertScheduler, stopSensorAlertScheduler } = require('./jobs/scheduleSensorAlert');
 const { startPestAlertScheduler, stopPestAlertScheduler } = require('./jobs/schedulePestAlert');
+const {
+  startSoilMoisturePlanScheduler,
+  stopSoilMoisturePlanScheduler,
+} = require('./jobs/scheduleSoilMoisturePlan');
 
 const UPLOADS_DIR = path.resolve(__dirname, config.UPLOADS_DIR);
 const LOGS_DIR = path.resolve(__dirname, 'logs');
@@ -317,6 +321,7 @@ const serverInstance = server.listen(PORT, HOST, () => {
   startAutoWaterScheduler(relayHooks);
   startSensorAlertScheduler();
   startPestAlertScheduler();
+  startSoilMoisturePlanScheduler();
 });
 
 const cleanupTimer = setInterval(() => {
@@ -344,6 +349,7 @@ function shutdown(signal) {
   stopAutoWaterScheduler();
   stopSensorAlertScheduler();
   stopPestAlertScheduler();
+  stopSoilMoisturePlanScheduler();
   clearInterval(cleanupTimer);
   clearInterval(streamWatchdogTimer);
   serverInstance.close(() => {

@@ -4,6 +4,10 @@ const AUTO_WATER_KEY = 'auto_water';
 const SENSOR_ALERT_KEY = 'sensor_alert';
 const LEGACY_EMAIL_REPORT_KEY = 'email_report';
 const PEST_ALERT_KEY = 'pest_alert';
+const WATERING_BOOST_KEY = 'watering_boost_active';
+
+const NORMAL_WATERING_SESSIONS = 2;
+const BOOST_WATERING_SESSIONS = 3;
 
 function getSetting(key, callback) {
   const db = getDb();
@@ -87,6 +91,17 @@ function setPestAlertEnabled(enabled, callback) {
   setSetting(PEST_ALERT_KEY, enabled ? 'true' : 'false', callback);
 }
 
+function getWateringBoostActive(callback) {
+  getSetting(WATERING_BOOST_KEY, (err, raw) => {
+    if (err) return callback(err);
+    callback(null, parseEnabled(raw, false));
+  });
+}
+
+function setWateringBoostActive(enabled, callback) {
+  setSetting(WATERING_BOOST_KEY, enabled ? 'true' : 'false', callback);
+}
+
 function getAutoWaterEnabledAsync() {
   return new Promise((resolve, reject) => {
     getAutoWaterEnabled((err, enabled) => {
@@ -141,6 +156,29 @@ function setPestAlertEnabledAsync(enabled) {
   });
 }
 
+function getWateringBoostActiveAsync() {
+  return new Promise((resolve, reject) => {
+    getWateringBoostActive((err, enabled) => {
+      if (err) reject(err);
+      else resolve(enabled);
+    });
+  });
+}
+
+function setWateringBoostActiveAsync(enabled) {
+  return new Promise((resolve, reject) => {
+    setWateringBoostActive(enabled, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+async function getWateringSessionsPerDayAsync() {
+  const boost = await getWateringBoostActiveAsync();
+  return boost ? BOOST_WATERING_SESSIONS : NORMAL_WATERING_SESSIONS;
+}
+
 module.exports = {
   getAutoWaterEnabled,
   setAutoWaterEnabled,
@@ -154,6 +192,13 @@ module.exports = {
   setPestAlertEnabled,
   getPestAlertEnabledAsync,
   setPestAlertEnabledAsync,
+  getWateringBoostActive,
+  setWateringBoostActive,
+  getWateringBoostActiveAsync,
+  setWateringBoostActiveAsync,
+  getWateringSessionsPerDayAsync,
+  NORMAL_WATERING_SESSIONS,
+  BOOST_WATERING_SESSIONS,
   getSettingAsync,
   setSettingAsync,
 };
