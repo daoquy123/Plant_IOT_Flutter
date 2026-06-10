@@ -1,28 +1,28 @@
 {
   "model": "resnet50_cbam",
-  "weights": "app\\checkpoints\\resnet50_cbam_best.weights.h5",
-  "history": "app/checkpoints/resnet50_cbam_training_history.json",
-  "la_sau_threshold": 0.35,
-  "test_samples": 303,
-  "accuracy": 1.0,
-  "macro_f1": 1.0,
+  "weights": "../checkpoints/resnet50_cbam_best.weights.h5",
+  "history": "../checkpoints/resnet50_cbam_training_history.json",
+  "la_sau_threshold": 0.37,
+  "test_samples": 292,
+  "accuracy": 0.976027397260274,
+  "macro_f1": 0.9668825110359137,
   "recall_la_sau": 1.0,
-  "precision_la_sau": 1.0,
-  "argmax_macro_f1": 1.0,
+  "precision_la_sau": 0.926829268292683,
+  "argmax_macro_f1": 0.9668825110359137,
   "argmax_recall_la_sau": 1.0,
-  "argmax_precision_la_sau": 1.0,
+  "argmax_precision_la_sau": 0.926829268292683,
   "f1_per_class": {
-    "la_khoe": 1.0,
-    "la_vang": 1.0,
-    "la_sau": 1.0,
+    "la_khoe": 0.9834983498349835,
+    "la_vang": 0.8888888888888888,
+    "la_sau": 0.9620253164556962,
     "sau": 1.0,
     "co": 1.0
   },
   "support_per_class": {
     "la_khoe": 150,
-    "la_vang": 33,
+    "la_vang": 30,
     "la_sau": 38,
-    "sau": 42,
+    "sau": 34,
     "co": 40
   }
 }

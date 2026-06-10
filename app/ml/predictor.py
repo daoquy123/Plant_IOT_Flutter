@@ -18,7 +18,7 @@ from .image_io import load_image_rgb_from_bytes
 
 _APP_DIR = Path(__file__).resolve().parent.parent
 _DEFAULT_WEIGHTS = _APP_DIR / "checkpoints" / "vgg16_cbam_best.weights.h5"
-_DEFAULT_RESNET_WEIGHTS = _APP_DIR / "checkpoints" / "resnet50_best.weights.h5"
+_DEFAULT_RESNET_WEIGHTS = _APP_DIR / "checkpoints" / "resnet50_cbam_best.weights.h5"
 
 
 class LeafHealthPredictor:
@@ -96,13 +96,14 @@ class MultiModelLeafHealthPredictor:
             return LeafHealthPredictor(weights_path=_DEFAULT_WEIGHTS)
         if normalized == "resnet":
             predictor = LeafHealthPredictor.__new__(LeafHealthPredictor)
-            predictor.weights_path = str(_DEFAULT_RESNET_WEIGHTS)
-            if not _DEFAULT_RESNET_WEIGHTS.is_file():
+            resnet_path = _DEFAULT_RESNET_WEIGHTS
+            predictor.weights_path = str(resnet_path)
+            if not resnet_path.is_file():
                 raise FileNotFoundError(
-                    f"Chưa có file trọng số ResNet: {_DEFAULT_RESNET_WEIGHTS}. "
-                    "Hãy copy file này lên server."
+                    f"Chưa có file trọng số ResNet50+CBAM đã train. "
+                    f"Kỳ vọng: {_DEFAULT_RESNET_WEIGHTS}"
                 )
-            predictor.model = load_resnet_model(str(_DEFAULT_RESNET_WEIGHTS), use_cbam=False)
+            predictor.model = load_resnet_model(str(resnet_path), use_cbam=True)
             return predictor
         raise ValueError("Model không hợp lệ. Chỉ hỗ trợ: vgg16, resnet")
 

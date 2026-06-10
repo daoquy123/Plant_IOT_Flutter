@@ -336,16 +336,7 @@ def train(
 
     model = build_vgg16_cbam_model()
     cost_matrix = _build_cost_matrix()
-    cost_sensitive_loss = _make_cost_sensitive_loss(cost_matrix)f1_la_sau: 0.8669 - val_loss: 0.4011 - val_precision_la_sau: 0.8639 - val_recall_la_sau: 0.8699 - learning_rate: 2.0000e-05
-Đã lưu biểu đồ huấn luyện (raw): /mnt/d/Downloads/PBL5/app/checkpoints/resnet50_training_history.json
-Full model: /mnt/d/Downloads/PBL5/app/saved_models/resnet50.keras
-
-Đã train xong. Best weights: /mnt/d/Downloads/PBL5/app/checkpoints/resnet50_best.weights.h5
-adminepchai@QuyChongGiang:/mnt/d/Downloads/PBL5/app/ml$ cp app/checkpoints/resnet50_training_history.json app/checkpoints/resnet50_seed124_history.json
-cp: cannot stat 'app/checkpoints/resnet50_training_history.json': No such file or directory
-adminepchai@QuyChongGiang:/mnt/d/Downloads/PBL5/app/ml$ cp app/checkpoints/resnet50_training_history.json app/checkpoints/resnet50_seed122_history.json
-cp: cannot stat 'app/checkpoints/resnet50_training_history.json': No such file or directory
-adminepchai@QuyChongGiang:/mnt/d/Downloads/PBL5/app/ml$
+    cost_sensitive_loss = _make_cost_sensitive_loss(cost_matrix)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(1e-4),
         loss=cost_sensitive_loss,
@@ -365,7 +356,7 @@ adminepchai@QuyChongGiang:/mnt/d/Downloads/PBL5/app/ml$
     )
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(
-        BEST_WEIGHTS_PATH,python train_resnet50.py --seed 124 --batch-size 48
+        BEST_WEIGHTS_PATH,
         monitor="val_recall_la_sau",
         save_best_only=True,
         save_weights_only=True,

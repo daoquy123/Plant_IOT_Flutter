@@ -52,6 +52,9 @@ if _static_dir.is_dir():
 
 @app.get("/", response_class=HTMLResponse)
 async def index(_request: Request):
+    chat_html = _APP_ROOT / "templates" / "index.html"
+    if chat_html.is_file():
+        return HTMLResponse(chat_html.read_text(encoding="utf-8"), status_code=200)
     return HTMLResponse(
         "<h1>Plant AI API</h1>"
         "<p>POST <code>/predict</code> hoặc <code>/api/predict</code> "
@@ -158,7 +161,25 @@ async def predict_flutter(
 @app.get("/api/health")
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "plant-ai"}
+    checkpoints = _APP_ROOT / "checkpoints"
+    vgg_weights = checkpoints / "vgg16_cbam_best.weights.h5"
+    resnet_weights = checkpoints / "resnet50_cbam_best.weights.h5"
+    return {
+        "status": "ok",
+        "service": "plant-ai",
+        "models": {
+            "vgg16": {
+                "architecture": "VGG16+CBAM",
+                "weights": str(vgg_weights),
+                "available": vgg_weights.is_file(),
+            },
+            "resnet": {
+                "architecture": "ResNet50+CBAM",
+                "weights": str(resnet_weights),
+                "available": resnet_weights.is_file(),
+            },
+        },
+    }
 
 
 if __name__ == "__main__":

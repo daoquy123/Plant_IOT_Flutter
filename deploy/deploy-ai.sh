@@ -43,17 +43,28 @@ python -m pip install --upgrade pip
 pip install -r requirements-ai-prod.txt
 
 echo "[3/6] Verify model weights..."
-WEIGHTS=(
-  "app/checkpoints/vgg16_cbam_best.weights.h5"
-  "app/checkpoints/resnet50_best.weights.h5"
-)
-for w in "${WEIGHTS[@]}"; do
-  if [[ ! -f "$w" ]]; then
-    echo "WARN: missing $w (vgg16/resnet predict may fail until uploaded)"
-  else
-    echo "OK: $w"
+CKPT="app/checkpoints"
+VGG="${CKPT}/vgg16_cbam_best.weights.h5"
+RESNET_CBAM="${CKPT}/resnet50_cbam_best.weights.h5"
+RESNET_LEGACY="${CKPT}/resnet50_best.weights.h5"
+
+if [[ -f "$VGG" ]]; then
+  echo "OK: $VGG"
+else
+  echo "WARN: missing $VGG (vgg16 predict may fail until uploaded)"
+fi
+
+if [[ -f "$RESNET_CBAM" ]]; then
+  echo "OK: $RESNET_CBAM"
+  if [[ ! -f "$RESNET_LEGACY" ]]; then
+    ln -sf "$(basename "$RESNET_CBAM")" "$RESNET_LEGACY"
+    echo "OK: linked $RESNET_LEGACY -> resnet50_cbam_best.weights.h5"
   fi
-done
+elif [[ -f "$RESNET_LEGACY" ]]; then
+  echo "OK: $RESNET_LEGACY (legacy ResNet)"
+else
+  echo "WARN: missing ResNet weights — upload resnet50_cbam_best.weights.h5 to $CKPT/"
+fi
 
 echo "[4/6] PM2 restart AI..."
 mkdir -p logs
@@ -70,9 +81,20 @@ pm2 start "$ROOT_DIR/.venv/bin/uvicorn" \
 pm2 save
 echo "PYTHONUNBUFFERED=1 AI_LOG_LEVEL=$AI_LOG_LEVEL"
 
-echo "[5/6] Health check..."
-sleep 3
-curl -fsS "http://127.0.0.1:8000/health" && echo
+echo "[5/6] Health check (TensorFlow có thể mất 30–90s)..."
+health_ok=0
+for i in $(seq 1 15); do
+  if curl -fsS "http://127.0.0.1:8000/health" >/dev/null 2>&1; then
+    curl -fsS "http://127.0.0.1:8000/health" && echo
+    health_ok=1
+    break
+  fi
+  echo "  đợi plant-ai... (${i}/15)"
+  sleep 6
+done
+if [[ "$health_ok" -ne 1 ]]; then
+  echo "WARN: /health chưa OK sau 90s — xem: pm2 logs plant-ai --lines 30"
+fi
 
 echo "[6/6] Verify startup log (grep plant-ai in error log)..."
 sleep 1

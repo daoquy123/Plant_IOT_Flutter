@@ -2,14 +2,14 @@
 <html lang="vi">
   <head>
     <meta charset="utf-8" />
-    <title>AI phân tích lá cải - VGG16 + CBAM</title>
+    <title>AI phân tích lá cải - VGG16 / ResNet50 + CBAM</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
     <div class="page">
       <div class="sidebar">
         <h1 class="logo">LeafCare AI</h1>
-        <p class="subtitle">VGG16 + CBAM<br />Phân tích ảnh lá cải</p>
+        <p class="subtitle">VGG16 + CBAM / ResNet50 + CBAM<br />Weights đã train local</p>
         <div class="hint-box">
           <p><strong>Gợi ý câu hỏi</strong></p>
           <ul>
@@ -26,15 +26,20 @@
             <div class="avatar">AI</div>
             <div class="bubble">
               <p>
-                Xin chào 👋. Hãy tải lên một <strong>ảnh lá cải</strong>, mình sẽ phân tích
-                tình trạng lá (khỏe, vàng, sâu, sâu + vàng) dựa trên mô hình
-                <strong>VGG16 + CBAM</strong>.
+                Xin chào 👋. Hãy tải lên một <strong>ảnh lá cải</strong>, chọn mô hình
+                (<strong>VGG16 + CBAM</strong> hoặc <strong>ResNet50 + CBAM</strong> đã train),
+                mình sẽ phân tích tình trạng lá (khỏe, vàng, sâu, sâu + vàng, cỏ).
               </p>
             </div>
           </div>
         </div>
 
         <form id="upload-form" class="input-bar">
+          <select id="model-select" class="model-select" title="Chọn mô hình đã train">
+            <option value="vgg16">VGG16 + CBAM</option>
+            <option value="resnet">ResNet50 + CBAM</option>
+            <option value="both">Cả hai (so sánh)</option>
+          </select>
           <label class="file-input">
             <input id="file" type="file" accept="image/*" />
             <span>Chọn ảnh</span>

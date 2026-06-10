@@ -1,6 +1,12 @@
 const messagesEl = document.getElementById("messages");
 const formEl = document.getElementById("upload-form");
 const fileInput = document.getElementById("file");
+const modelSelect = document.getElementById("model-select");
+
+const MODEL_LABELS = {
+  vgg16: "VGG16 + CBAM",
+  resnet: "ResNet50 + CBAM",
+};
 
 function appendMessage({ type, html }) {
   const wrapper = document.createElement("div");
@@ -20,6 +26,44 @@ function appendMessage({ type, html }) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+function formatResultHtml(data) {
+  const r = data.result;
+  const modelLabel = MODEL_LABELS[data.model] || data.model;
+
+  const probs = Object.entries(r.raw_probs)
+    .map(
+      ([k, v]) =>
+        `<span>${k.replaceAll("_", " ")}: ${(v * 100).toFixed(1)}%</span>`,
+    )
+    .join("");
+
+  return `
+    <p><strong>Mô hình:</strong> ${modelLabel}</p>
+    <p><strong>Kết quả:</strong> ${r.label_vietnamese}</p>
+    <p><strong>Độ tin cậy:</strong> ${(r.probability * 100).toFixed(1)}%</p>
+    <p>${r.explanation}</p>
+    <div class="probs">${probs}</div>
+  `;
+}
+
+async function predictWithModel(file, model) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("model", model);
+
+  const resp = await fetch("/api/predict", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `Lỗi khi chạy ${MODEL_LABELS[model] || model}`);
+  }
+
+  return resp.json();
+}
+
 formEl.addEventListener("submit", async (e) => {
   e.preventDefault();
   const file = fileInput.files[0];
@@ -28,8 +72,17 @@ formEl.addEventListener("submit", async (e) => {
     return;
   }
 
+  const choice = modelSelect.value;
+  const models =
+    choice === "both" ? ["vgg16", "resnet"] : [choice];
+
   const userHtml = `
     <p><strong>Ảnh:</strong> ${file.name}</p>
+    <p><strong>Mô hình:</strong> ${
+      choice === "both"
+        ? "VGG16 + CBAM & ResNet50 + CBAM"
+        : MODEL_LABELS[choice]
+    }</p>
   `;
   appendMessage({ type: "user", html: userHtml });
 
@@ -45,37 +98,10 @@ formEl.addEventListener("submit", async (e) => {
   btn.textContent = "Đang phân tích...";
 
   try {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const resp = await fetch("/api/predict", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.detail || "Lỗi khi gửi ảnh lên server");
+    for (const model of models) {
+      const data = await predictWithModel(file, model);
+      appendMessage({ type: "bot", html: formatResultHtml(data) });
     }
-
-    const data = await resp.json();
-    const r = data.result;
-
-    const probs = Object.entries(r.raw_probs)
-      .map(
-        ([k, v]) =>
-          `<span>${k.replaceAll("_", " ")}: ${(v * 100).toFixed(1)}%</span>`,
-      )
-      .join("");
-
-    const botHtml = `
-      <p><strong>Kết quả:</strong> ${r.label_vietnamese}</p>
-      <p><strong>Độ tin cậy:</strong> ${(r.probability * 100).toFixed(1)}%</p>
-      <p>${r.explanation}</p>
-      <div class="probs">${probs}</div>
-    `;
-
-    appendMessage({ type: "bot", html: botHtml });
   } catch (err) {
     appendMessage({
       type: "bot",
@@ -85,6 +111,6 @@ formEl.addEventListener("submit", async (e) => {
     btn.disabled = false;
     btn.textContent = "Gửi";
     formEl.reset();
+    modelSelect.value = choice;
   }
 });
-

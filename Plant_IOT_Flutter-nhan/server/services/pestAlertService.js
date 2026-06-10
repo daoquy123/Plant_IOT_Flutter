@@ -54,6 +54,20 @@ function formatConfidence(result) {
   return `${pct}%`;
 }
 
+/** Thời điểm ảnh — chỉ ngày/tháng/năm (giờ VN). */
+function formatCapturedDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+    return String(iso);
+  }
+  const vn = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(vn.getUTCDate())}/${pad(vn.getUTCMonth() + 1)}/${vn.getUTCFullYear()}`;
+}
+
 async function loadLatestCameraImageBytes() {
   const row = await getLatestImageAsync();
   if (row?.filepath && fs.existsSync(row.filepath)) {
@@ -195,28 +209,25 @@ async function checkAndSendPestAlert({ force = false } = {}) {
   const labelVi = result.label_vietnamese
     ?? result.label
     ?? 'Sâu bệnh';
-  const confText = formatConfidence(result);
-  const confLine = confText ? ` (độ tin cậy ${confText})` : '';
+  const capturedDate = formatCapturedDate(image.capturedAt);
 
   const text = [
     'Cảnh báo: có sâu đang xâm nhập vườn.',
     '',
-    `Kết quả ResNet: ${labelVi}${confLine}`,
-    result.explanation ? `Ghi chú: ${result.explanation}` : null,
+    `Phát hiện: ${labelVi}`,
     '',
     `Nguồn ảnh: ${image.source}`,
-    image.capturedAt ? `Thời điểm ảnh: ${image.capturedAt}` : null,
+    capturedDate ? `Thời điểm ảnh: ${capturedDate}` : null,
     image.publicUrl ? `URL: ${image.publicUrl}` : null,
   ].filter(Boolean).join('\n');
 
   const html = `
     <h2>Có sâu đang xâm nhập vườn</h2>
-    <p>Hệ thống vừa phân tích ảnh camera bằng <strong>ResNet</strong> và phát hiện dấu hiệu sâu bệnh.</p>
+    <p>Hệ thống vừa phân tích ảnh camera và phát hiện dấu hiệu sâu bệnh.</p>
     <ul>
-      <li><strong>${labelVi}</strong>${confLine}</li>
-      ${result.explanation ? `<li>${result.explanation}</li>` : ''}
+      <li><strong>${labelVi}</strong></li>
       <li>Nguồn ảnh: ${image.source}</li>
-      ${image.capturedAt ? `<li>Thời điểm ảnh: ${image.capturedAt}</li>` : ''}
+      ${capturedDate ? `<li>Thời điểm ảnh: ${capturedDate}</li>` : ''}
     </ul>
     <p style="color:#666;font-size:12px;">Kiểm tra mỗi giờ khi bật trong app. Tối đa 1 email/giờ.</p>
   `;
@@ -228,13 +239,13 @@ async function checkAndSendPestAlert({ force = false } = {}) {
   });
 
   await markPestAlertSent();
-  console.log(`[PEST-ALERT] Sent email — ${labelVi}${confLine}`);
+  console.log(`[PEST-ALERT] Sent email — ${labelVi}`);
 
   return {
     skipped: false,
     label: result.label,
     label_vietnamese: labelVi,
-    confidence: confText,
+    confidence: formatConfidence(result),
   };
 }
 

@@ -5,7 +5,7 @@ File `.h5` / `.keras` quá nặng — không đẩy lên GitHub. Sau khi `git cl
 ```bash
 # Từ máy Windows (PowerShell) — chỉnh user@IP
 scp app/checkpoints/vgg16_cbam_best.weights.h5 root@103.116.38.192:/var/www/plant-iot/app/checkpoints/
-scp app/checkpoints/resnet50_best.weights.h5 root@103.116.38.192:/var/www/plant-iot/app/checkpoints/
+scp app/checkpoints/resnet50_cbam_best.weights.h5 root@103.116.38.192:/var/www/plant-iot/app/checkpoints/
 ```
 
 Trên VPS:
